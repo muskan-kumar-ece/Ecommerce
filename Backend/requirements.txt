@@ -1,9 +1,0 @@
-Django==5.2.11
-djangorestframework==3.16.1
-djangorestframework-simplejwt==5.5.1
-django-cors-headers==4.9.0
-python-decouple==3.8
-psycopg2-binary==2.9.10
-cloudinary==1.44.1
-django-cloudinary-storage==0.3.0
-razorpay==1.4.2
