@@ -13,10 +13,11 @@ class UserScopedViewSet(ModelViewSet):
         return self.queryset.filter(**{self.user_field: self.request.user})
 
     def perform_create(self, serializer):
-        if self.user_field in serializer.fields:
+        model_fields = {field.name for field in serializer.Meta.model._meta.fields}
+        if "__" not in self.user_field and self.user_field in model_fields:
             serializer.save(**{self.user_field: self.request.user})
-        else:
-            serializer.save()
+            return
+        serializer.save()
 
 
 class CartViewSet(UserScopedViewSet):
