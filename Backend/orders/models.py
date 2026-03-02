@@ -89,7 +89,11 @@ class Order(models.Model):
             models.Index(fields=["payment_status"]),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["user", "idempotency_key"], name="unique_order_idempotency_key_per_user"),
+            models.UniqueConstraint(
+                fields=["user", "idempotency_key"],
+                condition=Q(idempotency_key__isnull=False),
+                name="unique_order_idempotency_key_per_user",
+            ),
         ]
 
     def __str__(self):

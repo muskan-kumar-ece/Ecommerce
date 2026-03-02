@@ -19,6 +19,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='order',
-            constraint=models.UniqueConstraint(fields=('user', 'idempotency_key'), name='unique_order_idempotency_key_per_user'),
+            constraint=models.UniqueConstraint(condition=models.Q(('idempotency_key__isnull', False)), fields=('user', 'idempotency_key'), name='unique_order_idempotency_key_per_user'),
         ),
     ]

@@ -33,7 +33,12 @@ class OrderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         idempotency_key = self.request.headers.get("Idempotency-Key")
         if idempotency_key:
-            existing_order = Order.objects.filter(user=self.request.user, idempotency_key=idempotency_key).first()
+            existing_order = (
+                Order.objects.filter(user=self.request.user, idempotency_key=idempotency_key)
+                .select_related("shipping_address")
+                .prefetch_related("items")
+                .first()
+            )
             if existing_order:
                 serializer.instance = existing_order
                 return
