@@ -227,7 +227,7 @@ class VerifyRazorpayPaymentView(APIView):
             order_update_fields = ["payment_status", "updated_at"]
             if payment.order.status != Order.Status.CONFIRMED:
                 payment.order.status = Order.Status.CONFIRMED
-                order_update_fields.insert(0, "status")
+                order_update_fields.append("status")
             payment.order.save(update_fields=order_update_fields)
 
         return Response({"detail": "Payment verified successfully."}, status=status.HTTP_200_OK)
