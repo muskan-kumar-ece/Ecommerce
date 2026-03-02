@@ -6,11 +6,26 @@ import * as authApi from "@/lib/api/auth";
 
 function setAccessTokenCookie(token: string | null) {
   if (typeof document === "undefined") return;
+  const secure = window.location.protocol === "https:" ? "; secure" : "";
   if (!token) {
-    document.cookie = "access_token=; path=/; max-age=0; samesite=lax";
+    document.cookie = `access_token=; path=/; max-age=0; samesite=lax${secure}`;
     return;
   }
-  document.cookie = `access_token=${encodeURIComponent(token)}; path=/; samesite=lax`;
+  const encodedPayload = token.split(".")[1];
+  let maxAge = "";
+  if (encodedPayload) {
+    try {
+      const base64 = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+      const payload = JSON.parse(atob(padded)) as { exp?: number };
+      if (payload.exp) {
+        maxAge = `; max-age=${Math.max(0, payload.exp - Math.floor(Date.now() / 1000))}`;
+      }
+    } catch {
+      maxAge = "";
+    }
+  }
+  document.cookie = `access_token=${encodeURIComponent(token)}; path=/; samesite=lax${secure}${maxAge}`;
 }
 
 type AuthState = {

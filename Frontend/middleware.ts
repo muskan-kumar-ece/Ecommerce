@@ -22,9 +22,9 @@ export async function middleware(request: NextRequest) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+          "Content-Type": "text/plain",
         },
-        body: "{}",
+        body: "permission-check",
       });
 
       if (response.status === 401) {
@@ -34,7 +34,8 @@ export async function middleware(request: NextRequest) {
       if (response.status === 403) {
         return NextResponse.redirect(new URL("/", request.url));
       }
-    } catch {
+    } catch (error) {
+      console.error("Admin route staff check failed", error);
       return NextResponse.redirect(new URL("/", request.url));
     }
   }
