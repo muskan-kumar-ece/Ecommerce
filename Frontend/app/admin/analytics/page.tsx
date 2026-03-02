@@ -14,6 +14,7 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 });
 
 const integerFormatter = new Intl.NumberFormat("en-IN");
+const MIN_BAR_HEIGHT_PERCENT = 8;
 
 function toNumber(value: string) {
   const parsed = Number(value);
@@ -45,7 +46,7 @@ export default function AdminAnalyticsDashboardPage() {
     ];
   }, [data]);
 
-  const maxRevenue = Math.max(...chartData.map((item) => item.value), 1);
+  const maxRevenue = useMemo(() => Math.max(...chartData.map((item) => item.value), 1), [chartData]);
 
   return (
     <section className="space-y-6">
@@ -104,7 +105,9 @@ export default function AdminAnalyticsDashboardPage() {
               <CardHeader>
                 <CardTitle className="text-base">Refund Rate</CardTitle>
               </CardHeader>
-              <CardContent className="text-2xl font-semibold text-slate-800">{data.refund_rate_percent}%</CardContent>
+              <CardContent className="text-2xl font-semibold text-slate-800">
+                {data.refund_rate_percent.toFixed(2)}%
+              </CardContent>
             </Card>
             <Card>
               <CardHeader>
@@ -127,6 +130,7 @@ export default function AdminAnalyticsDashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Revenue (Last 7 Days)</CardTitle>
+              <p className="text-xs text-slate-500">Daily bars are estimated from 7-day and today totals.</p>
             </CardHeader>
             <CardContent>
               <div className="flex h-64 items-end gap-3 rounded-xl bg-slate-50 p-4">
@@ -138,7 +142,7 @@ export default function AdminAnalyticsDashboardPage() {
                       <div className="flex h-44 w-full items-end">
                         <div
                           className="w-full rounded-t-md bg-slate-900"
-                          style={{ height: `${Math.max(heightPercent, 8)}%` }}
+                          style={{ height: `${Math.max(heightPercent, MIN_BAR_HEIGHT_PERCENT)}%` }}
                         />
                       </div>
                       <div className="text-xs text-slate-500">{item.label}</div>
