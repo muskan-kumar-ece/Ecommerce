@@ -18,7 +18,7 @@ class AnalyticsSummaryView(APIView):
 
     def get(self, request):
         today = timezone.localdate()
-        seven_days_ago = today - timedelta(days=6)
+        last_7_days_start = today - timedelta(days=6)
 
         metrics = Order.objects.aggregate(
             total_revenue=Coalesce(
@@ -46,7 +46,7 @@ class AnalyticsSummaryView(APIView):
                     "total_amount",
                     filter=Q(
                         payment_status=Order.PaymentStatus.PAID,
-                        created_at__date__gte=seven_days_ago,
+                        created_at__date__gte=last_7_days_start,
                     ),
                 ),
                 Value(Decimal("0.00")),
@@ -55,7 +55,12 @@ class AnalyticsSummaryView(APIView):
         )
 
         total_orders = metrics["total_orders"]
-        refund_rate_percent = (metrics["total_refunded_orders"] / total_orders * 100.0) if total_orders else 0.0
+        if total_orders:
+            refund_rate_percent = float(
+                (Decimal(metrics["total_refunded_orders"]) / Decimal(total_orders)) * Decimal("100")
+            )
+        else:
+            refund_rate_percent = 0.0
 
         serializer = AnalyticsSummarySerializer(
             {
