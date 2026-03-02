@@ -1,6 +1,5 @@
 from django.contrib import admin
 from django.db.models import F
-from django.db.models.functions import Coalesce
 from django.utils.html import format_html
 
 from .models import Category, Inventory, Product, ProductImage
@@ -15,13 +14,10 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "sku", "category", "price", "stock_quantity", "inventory_alert", "is_active", "updated_at")
+    list_display = ("name", "sku", "category", "price", "inventory_alert", "is_active", "updated_at")
     list_filter = ("is_active", "is_refurbished", "category", "created_at")
     search_fields = ("name", "sku", "description")
-    list_select_related = ("category",)
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("category", "inventory")
+    list_select_related = ("category", "inventory")
 
     @admin.display(description="Inventory Alert")
     def inventory_alert(self, obj):
@@ -29,7 +25,7 @@ class ProductAdmin(admin.ModelAdmin):
         if not inventory:
             return format_html('<span style="color:#d97706;font-weight:600;">No inventory</span>')
         available = max(inventory.quantity - inventory.reserved_quantity, 0)
-        if available <= inventory.reorder_level:
+        if available < inventory.reorder_level:
             return format_html('<span style="color:#dc2626;font-weight:700;">Low ({})</span>', available)
         return format_html('<span style="color:#16a34a;font-weight:600;">Healthy ({})</span>', available)
 
@@ -51,7 +47,7 @@ class InventoryAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("product").annotate(
-            available=Coalesce(F("quantity") - F("reserved_quantity"), 0)
+            available=F("quantity") - F("reserved_quantity")
         )
 
     @admin.display(ordering="available", description="Available")
@@ -61,6 +57,6 @@ class InventoryAdmin(admin.ModelAdmin):
     @admin.display(description="Alert")
     def stock_alert(self, obj):
         available = max(obj.available, 0)
-        if available <= obj.reorder_level:
+        if available < obj.reorder_level:
             return format_html('<span style="color:#dc2626;font-weight:700;">Reorder</span>')
         return format_html('<span style="color:#16a34a;font-weight:600;">OK</span>')

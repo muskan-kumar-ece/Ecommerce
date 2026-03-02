@@ -62,3 +62,6 @@ class ShippingAddressAdmin(admin.ModelAdmin):
     list_filter = ("country", "state", "city", "created_at")
     search_fields = ("full_name", "phone_number", "order__user__email")
     list_select_related = ("order", "order__user")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("order", "order__user")

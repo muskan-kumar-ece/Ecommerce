@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib import messages
 from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
@@ -7,12 +8,25 @@ from django.utils import timezone
 from orders.models import Order
 from products.models import Inventory
 
+DEFAULT_DASHBOARD_DAYS = 30
+
 
 def _dashboard_date_range(request):
-    end_date = parse_date(request.GET.get("end_date", "")) or timezone.localdate()
-    start_date = parse_date(request.GET.get("start_date", "")) or (end_date - timezone.timedelta(days=30))
+    start_raw = request.GET.get("start_date", "")
+    end_raw = request.GET.get("end_date", "")
+    parsed_start = parse_date(start_raw) if start_raw else None
+    parsed_end = parse_date(end_raw) if end_raw else None
+
+    end_date = parsed_end or timezone.localdate()
+    start_date = parsed_start if start_raw else (end_date - timezone.timedelta(days=DEFAULT_DASHBOARD_DAYS))
+    if start_raw and not parsed_start:
+        start_date = end_date - timezone.timedelta(days=DEFAULT_DASHBOARD_DAYS)
+        messages.warning(request, "Invalid start date. Showing default range.")
+    if end_raw and not parsed_end:
+        messages.warning(request, "Invalid end date. Showing default range.")
     if start_date > end_date:
         start_date, end_date = end_date, start_date
+        messages.warning(request, "Start date was after end date, so the range was swapped.")
     return start_date, end_date
 
 
@@ -25,7 +39,7 @@ def _dashboard_context(request):
     low_stock_queryset = (
         Inventory.objects.select_related("product")
         .annotate(available=F("quantity") - F("reserved_quantity"))
-        .filter(available__lte=F("reorder_level"))
+        .filter(available__lt=F("reorder_level"))
         .order_by("available")
     )
     return {
