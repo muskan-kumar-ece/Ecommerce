@@ -209,7 +209,11 @@ class VerifyRazorpayPaymentView(APIView):
             payment.razorpay_signature = razorpay_signature
             payment.status = Payment.Status.CAPTURED
             payment.verified_at = timezone.now()
-            _deduct_order_stock(payment.order)
+            if (
+                payment.order.payment_status != Order.PaymentStatus.PAID
+                and not payment.order.stock_deducted
+            ):
+                _deduct_order_stock(payment.order)
             payment.save(
                 update_fields=[
                     "razorpay_payment_id",
@@ -220,7 +224,11 @@ class VerifyRazorpayPaymentView(APIView):
                 ]
             )
             payment.order.payment_status = Order.PaymentStatus.PAID
-            payment.order.save(update_fields=["payment_status", "updated_at"])
+            order_update_fields = ["payment_status", "updated_at"]
+            if payment.order.status != Order.Status.CONFIRMED:
+                payment.order.status = Order.Status.CONFIRMED
+                order_update_fields.insert(0, "status")
+            payment.order.save(update_fields=order_update_fields)
 
         return Response({"detail": "Payment verified successfully."}, status=status.HTTP_200_OK)
 

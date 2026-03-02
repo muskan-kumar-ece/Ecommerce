@@ -107,9 +107,11 @@ class PaymentAPITests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
         verified_at = payment.verified_at
+        order_updated_at = self.order.updated_at
 
         already_verified = self.client.post(
             "/api/v1/payments/verify/",
@@ -128,6 +130,8 @@ class PaymentAPITests(TestCase):
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(payment.verified_at, verified_at)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.updated_at, order_updated_at)
         self.assertEqual(self.product.stock_quantity, 3)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
@@ -184,6 +188,37 @@ class PaymentAPITests(TestCase):
         self.assertEqual(low_stock_order.payment_status, Order.PaymentStatus.PENDING)
         self.assertFalse(low_stock_order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 5)
+
+    def test_payment_verification_keeps_confirmed_order_status(self):
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["status", "updated_at"])
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-confirmed",
+            razorpay_order_id="order_confirmed_1",
+            amount=99900,
+        )
+        signature = hmac.new(
+            b"rzp_test_secret",
+            msg=b"order_confirmed_1|pay_confirmed_1",
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_confirmed_1",
+                "razorpay_payment_id": "pay_confirmed_1",
+                "razorpay_signature": signature,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CAPTURED)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
 
     def test_webhook_idempotency(self):
         payment = Payment.objects.create(
