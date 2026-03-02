@@ -12,6 +12,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             <Link href="/">Products</Link>
             <Link href="/cart">Cart</Link>
             <Link href="/checkout">Checkout</Link>
+            <Link href="/referral">Referral</Link>
             <Link href="/admin">Admin</Link>
             <Link href="/login">Login</Link>
           </nav>

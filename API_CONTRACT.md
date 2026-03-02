@@ -92,9 +92,29 @@ This document describes the **current** API contract implemented in the Django b
 ## 2) Users Endpoints
 
 - **URL prefix configured:** `/api/v1/users/`
-- **Current implementation:** `users/urls.py` has no routes.
 
-There are currently **no user CRUD/profile endpoints** exposed from this prefix.
+### 2.1 Register User
+- **URL:** `/api/v1/users/register/`
+- **Method:** `POST`
+- **Authentication required:** **No**
+
+### 2.2 Referral Summary
+- **URL:** `/api/v1/users/referral-summary/`
+- **Method:** `GET`
+- **Authentication required:** **Yes**
+
+**Response structure (`200 OK`)**
+```json
+{
+  "referral_code": "AB12CD34EF",
+  "total_referrals": 5,
+  "successful_referrals": 3,
+  "pending_rewards": 2,
+  "earned_rewards": "300.00",
+  "referral_link": "http://localhost:3000/register/?ref=AB12CD34EF",
+  "reward_coupon_codes": ["REF1234567890", "REFABCDEFGHIJ"]
+}
+```
 
 ---
 

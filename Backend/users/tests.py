@@ -1,7 +1,13 @@
+from decimal import Decimal
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from orders.models import Coupon
 
 from .models import Referral
 
@@ -70,3 +76,56 @@ class UserRegistrationAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ReferralSummaryAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            email="owner@example.com",
+            password="StrongPass123",
+            name="Owner",
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_referral_summary_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get("/api/v1/users/referral-summary/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_referral_summary_returns_counts_rewards_and_codes(self):
+        referred_success = get_user_model().objects.create_user(
+            email="success@example.com",
+            password="StrongPass123",
+            name="Success",
+        )
+        referred_pending = get_user_model().objects.create_user(
+            email="pending@example.com",
+            password="StrongPass123",
+            name="Pending",
+        )
+        Referral.objects.create(referrer=self.user, referred_user=referred_success, reward_issued=True)
+        Referral.objects.create(referrer=self.user, referred_user=referred_pending, reward_issued=False)
+
+        now = timezone.now()
+        Coupon.objects.create(
+            code="REFABCD123456",
+            discount_type=Coupon.DiscountType.FIXED,
+            discount_value=Decimal("100.00"),
+            max_uses=1,
+            per_user_limit=1,
+            eligible_user=self.user,
+            valid_from=now,
+            valid_until=now + timedelta(days=7),
+            is_active=True,
+        )
+
+        response = self.client.get("/api/v1/users/referral-summary/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["referral_code"], self.user.referral_owner_code)
+        self.assertEqual(response.data["total_referrals"], 2)
+        self.assertEqual(response.data["successful_referrals"], 1)
+        self.assertEqual(response.data["pending_rewards"], 1)
+        self.assertEqual(response.data["earned_rewards"], "100.00")
+        self.assertEqual(response.data["reward_coupon_codes"], ["REFABCD123456"])
+        self.assertIn("/register/?ref=", response.data["referral_link"])

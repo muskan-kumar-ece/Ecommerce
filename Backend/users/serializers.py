@@ -32,3 +32,13 @@ class RegisterUserSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"referral_code": "Invalid referral code."})
                 Referral.objects.create(referrer=referrer, referred_user=user)
         return user
+
+
+class ReferralSummarySerializer(serializers.Serializer):
+    referral_code = serializers.CharField(max_length=20)
+    total_referrals = serializers.IntegerField(min_value=0)
+    successful_referrals = serializers.IntegerField(min_value=0)
+    pending_rewards = serializers.IntegerField(min_value=0)
+    earned_rewards = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    referral_link = serializers.CharField()
+    reward_coupon_codes = serializers.ListField(child=serializers.CharField(max_length=50), required=False)

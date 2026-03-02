@@ -58,3 +58,13 @@ export type AnalyticsSummary = {
   today_orders: number;
   last_7_days_revenue: string;
 };
+
+export type ReferralSummary = {
+  referral_code: string;
+  total_referrals: number;
+  successful_referrals: number;
+  pending_rewards: number;
+  earned_rewards: string;
+  referral_link: string;
+  reward_coupon_codes: string[];
+};
