@@ -8,6 +8,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <h2 className="mb-4 text-lg font-semibold">Admin</h2>
           <nav className="space-y-2 text-sm text-slate-600">
             <Link href="/admin">Dashboard</Link>
+            <Link href="/admin/analytics">Analytics</Link>
             <div className="block">Orders</div>
             <div className="block">Products</div>
             <div className="block">Payments</div>

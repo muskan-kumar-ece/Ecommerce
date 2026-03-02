@@ -5,10 +5,13 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from orders.admin import OrderAdmin, mark_orders_confirmed
 from orders.models import Order
 from products.models import Category, Inventory, Product
+from users.models import Referral
 
 
 class AdminDashboardTests(TestCase):
@@ -73,3 +76,87 @@ class OrderAdminActionTests(TestCase):
 
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.CONFIRMED)
+
+
+class AnalyticsSummaryAPITests(TestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_superuser(
+            email="founder@example.com",
+            password="SecurePass123!",
+            name="Founder",
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email="user@example.com",
+            password="SecurePass123!",
+            name="User",
+        )
+        self.client = APIClient()
+
+    def test_admin_can_view_analytics_summary(self):
+        Referral.objects.create(referrer=self.admin_user, referred_user=self.regular_user, reward_issued=True)
+        paid_order = Order.objects.create(
+            user=self.regular_user,
+            total_amount=Decimal("100.00"),
+            gross_amount=Decimal("120.00"),
+            coupon_discount=Decimal("20.00"),
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        today_refunded = Order.objects.create(
+            user=self.regular_user,
+            total_amount=Decimal("50.00"),
+            payment_status=Order.PaymentStatus.REFUNDED,
+        )
+        old_paid_order = Order.objects.create(
+            user=self.regular_user,
+            total_amount=Decimal("200.00"),
+            gross_amount=Decimal("200.00"),
+            coupon_discount=Decimal("0.00"),
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        Order.objects.create(
+            user=self.admin_user,
+            total_amount=Decimal("500.00"),
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        Order.objects.filter(id=paid_order.id).update(created_at=timezone.now())
+        Order.objects.filter(id=today_refunded.id).update(created_at=timezone.now())
+        Order.objects.filter(id=old_paid_order.id).update(created_at=timezone.now() - timedelta(days=10))
+
+        self.client.force_authenticate(self.admin_user)
+        response = self.client.get("/admin/analytics/summary/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_revenue"], "800.00")
+        self.assertEqual(response.data["gross_revenue"], "820.00")
+        self.assertEqual(response.data["discount_amount"], "20.00")
+        self.assertEqual(response.data["net_revenue"], "800.00")
+        self.assertEqual(response.data["total_orders"], 4)
+        self.assertEqual(response.data["total_paid_orders"], 3)
+        self.assertEqual(response.data["total_refunded_orders"], 1)
+        self.assertEqual(response.data["total_referrals"], 1)
+        self.assertEqual(response.data["successful_referrals"], 1)
+        self.assertEqual(response.data["revenue_from_referrals"], "300.00")
+        self.assertEqual(response.data["refund_rate_percent"], 25.0)
+        self.assertEqual(response.data["today_revenue"], "600.00")
+        self.assertEqual(response.data["today_orders"], 3)
+        self.assertEqual(response.data["last_7_days_revenue"], "600.00")
+
+    def test_non_admin_cannot_view_analytics_summary(self):
+        self.client.force_authenticate(self.regular_user)
+        response = self.client.get("/admin/analytics/summary/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_referral_without_paid_order_has_zero_referral_revenue(self):
+        pending_user = get_user_model().objects.create_user(
+            email="pending-ref@example.com",
+            password="SecurePass123!",
+            name="Pending Referral",
+        )
+        Referral.objects.create(referrer=self.admin_user, referred_user=pending_user, reward_issued=False)
+
+        self.client.force_authenticate(self.admin_user)
+        response = self.client.get("/admin/analytics/summary/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["revenue_from_referrals"], "0.00")

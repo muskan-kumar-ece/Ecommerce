@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.db.models import Prefetch
 
-from .models import Cart, CartItem, Order, OrderItem, ShippingAddress
+from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
 
 
 @admin.register(Cart)
@@ -65,3 +65,32 @@ class ShippingAddressAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("order", "order__user")
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "discount_type",
+        "discount_value",
+        "minimum_order_amount",
+        "max_uses",
+        "used_count",
+        "per_user_limit",
+        "eligible_user",
+        "valid_from",
+        "valid_until",
+        "is_active",
+    )
+    list_filter = ("discount_type", "is_active", "valid_from", "valid_until")
+    search_fields = ("code",)
+    readonly_fields = ("used_count", "created_at", "updated_at")
+
+
+@admin.register(CouponUsage)
+class CouponUsageAdmin(admin.ModelAdmin):
+    list_display = ("id", "coupon", "user", "order", "discount_amount", "created_at")
+    list_filter = ("coupon", "created_at")
+    search_fields = ("coupon__code", "user__email", "order__id")
+    list_select_related = ("coupon", "user", "order")
+    readonly_fields = ("coupon", "user", "order", "discount_amount", "created_at")

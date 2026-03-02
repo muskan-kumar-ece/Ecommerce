@@ -1,8 +1,12 @@
 import uuid
+from secrets import token_hex
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.db import IntegrityError
 from django.db import models
 from django.utils import timezone
+
+MAX_CODE_GENERATION_ATTEMPTS = 5
 
 
 class UserManager(BaseUserManager):
@@ -38,6 +42,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+    referral_owner_code = models.CharField(max_length=20, unique=True, db_index=True, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -47,5 +52,40 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
 
+    def save(self, *args, **kwargs):
+        if self.referral_owner_code:
+            return super().save(*args, **kwargs)
+        for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
+            self.referral_owner_code = token_hex(5).upper()
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise IntegrityError("Unable to generate unique referral owner code.")
+
     def __str__(self):
         return self.email
+
+
+class Referral(models.Model):
+    referrer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="referrals_made")
+    referred_user = models.OneToOneField(User, on_delete=models.PROTECT, related_name="referral_record")
+    referral_code = models.CharField(max_length=20, unique=True, db_index=True, blank=True)
+    reward_issued = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["referrer", "reward_issued"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.referral_code:
+            return super().save(*args, **kwargs)
+        for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
+            self.referral_code = token_hex(5).upper()
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise IntegrityError("Unable to generate unique referral code.")

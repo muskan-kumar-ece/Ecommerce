@@ -3,7 +3,9 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -16,12 +18,14 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from orders.models import Order
+from orders.models import Coupon, Order
 from products.models import Product
+from users.models import Referral
 
 from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 logger = logging.getLogger(__name__)
+MAX_CODE_GENERATION_ATTEMPTS = 5
 
 
 class RazorpayIntegrationError(Exception):
@@ -57,6 +61,46 @@ def _deduct_order_stock(order: Order) -> None:
 
     order.stock_deducted = True
     order.save(update_fields=["stock_deducted", "updated_at"])
+
+
+def _issue_referral_reward(order: Order) -> None:
+    referral = (
+        Referral.objects.select_for_update()
+        .select_related("referrer", "referred_user")
+        .filter(referred_user=order.user)
+        .first()
+    )
+    if not referral or referral.reward_issued:
+        return
+    has_previous_paid_order = (
+        Order.objects.filter(user=order.user, payment_status=Order.PaymentStatus.PAID)
+        .exclude(id=order.id)
+        .exists()
+    )
+    if has_previous_paid_order:
+        return
+    now = timezone.now()
+    for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
+        coupon_code = f"REF{uuid4().hex[:12]}".upper()
+        try:
+            Coupon.objects.create(
+                code=coupon_code,
+                discount_type=Coupon.DiscountType.FIXED,
+                discount_value=Decimal("100.00"),
+                max_uses=1,
+                per_user_limit=1,
+                eligible_user=referral.referrer,
+                valid_from=now,
+                valid_until=now + timedelta(days=30),
+                is_active=True,
+            )
+            break
+        except IntegrityError:
+            continue
+    else:
+        raise IntegrityError("Unable to generate unique reward coupon code.")
+    referral.reward_issued = True
+    referral.save(update_fields=["reward_issued"])
 
 
 def _create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
@@ -245,6 +289,7 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.order.status = Order.Status.CONFIRMED
                 order_update_fields.append("status")
             payment.order.save(update_fields=order_update_fields)
+            _issue_referral_reward(payment.order)
             PaymentEvent.objects.create(
                 payment=payment,
                 event_type=PaymentEvent.EventType.VERIFIED,
@@ -359,6 +404,7 @@ class RazorpayWebhookView(APIView):
                     payment.verified_at = timezone.now()
                     payment.order.payment_status = next_status
                     payment.order.save(update_fields=["payment_status", "updated_at"])
+                    _issue_referral_reward(payment.order)
                 else:
                     logger.warning(
                         "Ignoring webhook transition %s -> %s for order_id=%s",

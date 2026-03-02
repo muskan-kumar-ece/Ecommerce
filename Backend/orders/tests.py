@@ -1,13 +1,15 @@
 from decimal import Decimal
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Order
+from .models import Cart, Coupon, CouponUsage, Order
 from .views import OrderViewSet
 
 
@@ -119,3 +121,139 @@ class OrderAPITests(TestCase):
         self.assertEqual(Order.objects.get(id=first_response.data["id"]).idempotency_key, "order-key-1")
         self.assertEqual(first_response.data["id"], second_response.data["id"])
         self.assertEqual(Order.objects.filter(user=user, idempotency_key="order-key-1").count(), 1)
+
+
+class CouponAPITests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="couponuser@example.com",
+            password="StrongPass123",
+            name="Coupon User",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        now = timezone.now()
+        self.coupon = Coupon.objects.create(
+            code="SAVE10",
+            discount_type=Coupon.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            minimum_order_amount=Decimal("500.00"),
+            max_uses=2,
+            per_user_limit=1,
+            valid_from=now - timedelta(days=1),
+            valid_until=now + timedelta(days=1),
+            is_active=True,
+        )
+
+    def test_apply_coupon_updates_order_amounts_and_usage(self):
+        order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+
+        response = self.client.post(
+            f"/api/v1/orders/{order.id}/apply-coupon/",
+            {"code": "save10"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.coupon.refresh_from_db()
+        self.assertEqual(order.gross_amount, Decimal("1000.00"))
+        self.assertEqual(order.coupon_discount, Decimal("100.00"))
+        self.assertEqual(order.total_amount, Decimal("900.00"))
+        self.assertEqual(order.applied_coupon_id, self.coupon.id)
+        self.assertEqual(self.coupon.used_count, 1)
+        self.assertEqual(CouponUsage.objects.filter(coupon=self.coupon, user=self.user, order=order).count(), 1)
+
+    def test_apply_coupon_is_idempotent_when_same_coupon_is_reused(self):
+        order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+
+        first = self.client.post(f"/api/v1/orders/{order.id}/apply-coupon/", {"code": "SAVE10"}, format="json")
+        second = self.client.post(f"/api/v1/orders/{order.id}/apply-coupon/", {"code": "SAVE10"}, format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.coupon.refresh_from_db()
+        self.assertEqual(self.coupon.used_count, 1)
+        self.assertEqual(CouponUsage.objects.filter(coupon=self.coupon, order=order).count(), 1)
+
+    def test_apply_coupon_rejects_per_user_limit_and_minimum_amount(self):
+        first_order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        self.client.post(f"/api/v1/orders/{first_order.id}/apply-coupon/", {"code": "SAVE10"}, format="json")
+
+        second_order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        per_user_limit_response = self.client.post(
+            f"/api/v1/orders/{second_order.id}/apply-coupon/",
+            {"code": "SAVE10"},
+            format="json",
+        )
+        self.assertEqual(per_user_limit_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Per-user coupon usage limit exceeded.", str(per_user_limit_response.data))
+
+        low_amount_order = Order.objects.create(user=self.user, total_amount=Decimal("200.00"))
+        low_amount_response = self.client.post(
+            f"/api/v1/orders/{low_amount_order.id}/apply-coupon/",
+            {"code": "SAVE10"},
+            format="json",
+        )
+        self.assertEqual(low_amount_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("minimum amount", str(low_amount_response.data))
+
+    def test_apply_coupon_rejects_expired_and_max_use_limit(self):
+        max_use_coupon = Coupon.objects.create(
+            code="MAXED",
+            discount_type=Coupon.DiscountType.FIXED,
+            discount_value=Decimal("50.00"),
+            max_uses=1,
+            used_count=1,
+            valid_from=timezone.now() - timedelta(days=2),
+            valid_until=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        maxed_response = self.client.post(
+            f"/api/v1/orders/{order.id}/apply-coupon/",
+            {"code": max_use_coupon.code},
+            format="json",
+        )
+        self.assertEqual(maxed_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("usage limit exceeded", str(maxed_response.data))
+
+        expired_coupon = Coupon.objects.create(
+            code="EXPIRED",
+            discount_type=Coupon.DiscountType.FIXED,
+            discount_value=Decimal("50.00"),
+            valid_from=timezone.now() - timedelta(days=5),
+            valid_until=timezone.now() - timedelta(days=1),
+            is_active=True,
+        )
+        expired_response = self.client.post(
+            f"/api/v1/orders/{order.id}/apply-coupon/",
+            {"code": expired_coupon.code},
+            format="json",
+        )
+        self.assertEqual(expired_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not valid", str(expired_response.data))
+
+    def test_apply_coupon_rejects_ineligible_user_coupon(self):
+        other_user = get_user_model().objects.create_user(
+            email="other-coupon@example.com",
+            password="StrongPass123",
+            name="Other Coupon",
+        )
+        user_only_coupon = Coupon.objects.create(
+            code="PRIVATE100",
+            discount_type=Coupon.DiscountType.FIXED,
+            discount_value=Decimal("100.00"),
+            eligible_user=other_user,
+            valid_from=timezone.now() - timedelta(days=1),
+            valid_until=timezone.now() + timedelta(days=1),
+            is_active=True,
+        )
+        order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        response = self.client.post(
+            f"/api/v1/orders/{order.id}/apply-coupon/",
+            {"code": user_only_coupon.code},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not eligible", str(response.data))
