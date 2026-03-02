@@ -12,9 +12,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related("category", "inventory").prefetch_related("images")
     serializer_class = ProductSerializer
     permission_classes = [IsAdminOrReadOnly]
+
+    def get_queryset(self):
+        queryset = Product.objects.select_related("category", "inventory").prefetch_related("images")
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return queryset
+        return queryset.filter(is_active=True)
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):
