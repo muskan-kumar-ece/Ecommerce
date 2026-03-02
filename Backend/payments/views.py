@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -16,8 +17,9 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from orders.models import Order
+from orders.models import Coupon, Order
 from products.models import Product
+from users.models import Referral
 
 from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
@@ -57,6 +59,35 @@ def _deduct_order_stock(order: Order) -> None:
 
     order.stock_deducted = True
     order.save(update_fields=["stock_deducted", "updated_at"])
+
+
+def _issue_referral_reward(order: Order) -> None:
+    referral = (
+        Referral.objects.select_for_update()
+        .select_related("referrer", "referred_user")
+        .filter(referred_user=order.user)
+        .first()
+    )
+    if not referral or referral.reward_issued:
+        return
+    paid_orders_count = Order.objects.filter(user=order.user, payment_status=Order.PaymentStatus.PAID).count()
+    if paid_orders_count != 1:
+        return
+    now = timezone.now()
+    coupon_code = f"REF{referral.referrer_id.hex[:8]}{now.strftime('%f')}".upper()
+    Coupon.objects.create(
+        code=coupon_code,
+        discount_type=Coupon.DiscountType.FIXED,
+        discount_value=Decimal("100.00"),
+        max_uses=1,
+        per_user_limit=1,
+        eligible_user=referral.referrer,
+        valid_from=now,
+        valid_until=now + timedelta(days=30),
+        is_active=True,
+    )
+    referral.reward_issued = True
+    referral.save(update_fields=["reward_issued"])
 
 
 def _create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
@@ -245,6 +276,7 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.order.status = Order.Status.CONFIRMED
                 order_update_fields.append("status")
             payment.order.save(update_fields=order_update_fields)
+            _issue_referral_reward(payment.order)
             PaymentEvent.objects.create(
                 payment=payment,
                 event_type=PaymentEvent.EventType.VERIFIED,
@@ -359,6 +391,7 @@ class RazorpayWebhookView(APIView):
                     payment.verified_at = timezone.now()
                     payment.order.payment_status = next_status
                     payment.order.save(update_fields=["payment_status", "updated_at"])
+                    _issue_referral_reward(payment.order)
                 else:
                     logger.warning(
                         "Ignoring webhook transition %s -> %s for order_id=%s",

@@ -1,4 +1,5 @@
 import uuid
+from secrets import token_hex
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
@@ -38,6 +39,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+    referral_owner_code = models.CharField(max_length=20, unique=True, db_index=True, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -47,5 +49,28 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
 
+    def save(self, *args, **kwargs):
+        if not self.referral_owner_code:
+            self.referral_owner_code = token_hex(5).upper()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.email
+
+
+class Referral(models.Model):
+    referrer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="referrals_made")
+    referred_user = models.OneToOneField(User, on_delete=models.PROTECT, related_name="referral_record")
+    referral_code = models.CharField(max_length=20, unique=True, db_index=True, blank=True)
+    reward_issued = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["referrer", "reward_issued"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.referral_code:
+            self.referral_code = token_hex(5).upper()
+        super().save(*args, **kwargs)

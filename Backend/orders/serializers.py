@@ -106,6 +106,7 @@ class CouponSerializer(serializers.ModelSerializer):
             "max_uses",
             "used_count",
             "per_user_limit",
+            "eligible_user",
             "valid_from",
             "valid_until",
             "is_active",
@@ -145,6 +146,8 @@ class ApplyCouponSerializer(serializers.Serializer):
             user_usage_count = CouponUsage.objects.filter(coupon=coupon, user=request.user).count()
             if user_usage_count >= coupon.per_user_limit:
                 raise serializers.ValidationError({"code": "Per-user coupon usage limit exceeded."})
+        if coupon.eligible_user_id and coupon.eligible_user_id != request.user.id:
+            raise serializers.ValidationError({"code": "Coupon is not eligible for this user."})
         attrs["coupon"] = coupon
         return attrs
 

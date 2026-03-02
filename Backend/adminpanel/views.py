@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.models import Order
+from users.models import Referral
 
 from .serializers import AnalyticsSummarySerializer
 
@@ -42,6 +43,14 @@ class AnalyticsSummaryView(APIView):
             total_orders=Count("id"),
             total_paid_orders=Count("id", filter=Q(payment_status=Order.PaymentStatus.PAID)),
             total_refunded_orders=Count("id", filter=Q(payment_status=Order.PaymentStatus.REFUNDED)),
+            revenue_from_referrals=Coalesce(
+                Sum(
+                    "total_amount",
+                    filter=Q(payment_status=Order.PaymentStatus.PAID, user__referral_record__isnull=False),
+                ),
+                Value(Decimal("0.00")),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
             today_revenue=Coalesce(
                 Sum(
                     "total_amount",
@@ -78,6 +87,8 @@ class AnalyticsSummaryView(APIView):
         serializer = AnalyticsSummarySerializer(
             {
                 **metrics,
+                "total_referrals": Referral.objects.count(),
+                "successful_referrals": Referral.objects.filter(reward_issued=True).count(),
                 "total_revenue": metrics["net_revenue"],
                 "refund_rate_percent": round(refund_rate_percent, 2),
             }

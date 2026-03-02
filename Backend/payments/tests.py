@@ -11,8 +11,9 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from orders.models import Order, OrderItem
+from orders.models import Coupon, Order, OrderItem
 from products.models import Category, Product
+from users.models import Referral
 
 from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
@@ -161,6 +162,53 @@ class PaymentAPITests(TestCase):
         self.assertEqual(duplicate.status_code, status.HTTP_409_CONFLICT)
         duplicate_payment = Payment.objects.get(razorpay_order_id="order_ver_2")
         self.assertEqual(duplicate_payment.events.filter(event_type=PaymentEvent.EventType.DUPLICATE).count(), 1)
+
+    def test_first_referred_paid_order_issues_reward_coupon_once(self):
+        referrer = get_user_model().objects.create_user(
+            email="referrer@example.com",
+            password="StrongPass123",
+            name="Referrer",
+        )
+        referred_user = get_user_model().objects.create_user(
+            email="referred-payer@example.com",
+            password="StrongPass123",
+            name="Referred Payer",
+        )
+        Referral.objects.create(referrer=referrer, referred_user=referred_user)
+        referred_order = Order.objects.create(user=referred_user, total_amount=Decimal("500.00"))
+        OrderItem.objects.create(order=referred_order, product=self.product, quantity=1, price=Decimal("500.00"))
+        payment = Payment.objects.create(
+            order=referred_order,
+            idempotency_key="idem-referred",
+            razorpay_order_id="order_ref_1",
+            amount=50000,
+        )
+        signature = hmac.new(
+            b"rzp_test_secret",
+            msg=b"order_ref_1|pay_ref_1",
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+        self.client.force_authenticate(referred_user)
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_ref_1",
+                "razorpay_payment_id": "pay_ref_1",
+                "razorpay_signature": signature,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        referral = Referral.objects.get(referred_user=referred_user)
+        self.assertTrue(referral.reward_issued)
+        reward_coupons = Coupon.objects.filter(eligible_user=referrer, discount_value=Decimal("100.00"))
+        self.assertEqual(reward_coupons.count(), 1)
+        reward_coupon = reward_coupons.first()
+        self.assertEqual(reward_coupon.discount_type, Coupon.DiscountType.FIXED)
+        self.assertEqual(reward_coupon.max_uses, 1)
+        self.assertEqual(reward_coupon.per_user_limit, 1)
 
     def test_payment_verification_fails_when_stock_is_insufficient(self):
         low_stock_order = Order.objects.create(user=self.user, total_amount=Decimal("999.00"))

@@ -77,6 +77,7 @@ class CouponAdmin(admin.ModelAdmin):
         "max_uses",
         "used_count",
         "per_user_limit",
+        "eligible_user",
         "valid_from",
         "valid_until",
         "is_active",

@@ -233,3 +233,27 @@ class CouponAPITests(TestCase):
         )
         self.assertEqual(expired_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not valid", str(expired_response.data))
+
+    def test_apply_coupon_rejects_ineligible_user_coupon(self):
+        other_user = get_user_model().objects.create_user(
+            email="other-coupon@example.com",
+            password="StrongPass123",
+            name="Other Coupon",
+        )
+        user_only_coupon = Coupon.objects.create(
+            code="PRIVATE100",
+            discount_type=Coupon.DiscountType.FIXED,
+            discount_value=Decimal("100.00"),
+            eligible_user=other_user,
+            valid_from=timezone.now() - timedelta(days=1),
+            valid_until=timezone.now() + timedelta(days=1),
+            is_active=True,
+        )
+        order = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        response = self.client.post(
+            f"/api/v1/orders/{order.id}/apply-coupon/",
+            {"code": user_only_coupon.code},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not eligible", str(response.data))

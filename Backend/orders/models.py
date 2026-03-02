@@ -168,6 +168,13 @@ class Coupon(models.Model):
     max_uses = models.PositiveIntegerField(null=True, blank=True)
     used_count = models.PositiveIntegerField(default=0)
     per_user_limit = models.PositiveIntegerField(null=True, blank=True)
+    eligible_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="eligible_coupons",
+    )
     valid_from = models.DateTimeField()
     valid_until = models.DateTimeField()
     is_active = models.BooleanField(default=True, db_index=True)

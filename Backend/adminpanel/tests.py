@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 from orders.admin import OrderAdmin, mark_orders_confirmed
 from orders.models import Order
 from products.models import Category, Inventory, Product
+from users.models import Referral
 
 
 class AdminDashboardTests(TestCase):
@@ -92,6 +93,7 @@ class AnalyticsSummaryAPITests(TestCase):
         self.client = APIClient()
 
     def test_admin_can_view_analytics_summary(self):
+        Referral.objects.create(referrer=self.admin_user, referred_user=self.regular_user, reward_issued=True)
         paid_order = Order.objects.create(
             user=self.regular_user,
             total_amount=Decimal("100.00"),
@@ -126,6 +128,9 @@ class AnalyticsSummaryAPITests(TestCase):
         self.assertEqual(response.data["total_orders"], 3)
         self.assertEqual(response.data["total_paid_orders"], 2)
         self.assertEqual(response.data["total_refunded_orders"], 1)
+        self.assertEqual(response.data["total_referrals"], 1)
+        self.assertEqual(response.data["successful_referrals"], 1)
+        self.assertEqual(response.data["revenue_from_referrals"], "300.00")
         self.assertEqual(response.data["refund_rate_percent"], 33.33)
         self.assertEqual(response.data["today_revenue"], "100.00")
         self.assertEqual(response.data["today_orders"], 2)
