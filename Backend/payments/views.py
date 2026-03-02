@@ -169,6 +169,7 @@ class CreateRazorpayOrderView(APIView):
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
         razorpay_order_id = request.data.get("razorpay_order_id")
         razorpay_payment_id = request.data.get("razorpay_payment_id")
