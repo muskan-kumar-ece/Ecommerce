@@ -17,7 +17,10 @@ class RegisterUserSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "role", "referral_owner_code")
 
     def validate_referral_code(self, value):
-        return value.strip().upper()
+        normalized = value.strip().upper()
+        if not normalized:
+            return ""
+        return normalized
 
     def create(self, validated_data):
         referral_code = validated_data.pop("referral_code", "")
@@ -27,7 +30,5 @@ class RegisterUserSerializer(serializers.ModelSerializer):
                 referrer = User.objects.filter(referral_owner_code=referral_code).first()
                 if not referrer:
                     raise serializers.ValidationError({"referral_code": "Invalid referral code."})
-                if referrer.id == user.id:
-                    raise serializers.ValidationError({"referral_code": "You cannot use your own referral code."})
                 Referral.objects.create(referrer=referrer, referred_user=user)
         return user

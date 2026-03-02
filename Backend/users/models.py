@@ -2,8 +2,11 @@ import uuid
 from secrets import token_hex
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.db import IntegrityError
 from django.db import models
 from django.utils import timezone
+
+MAX_CODE_GENERATION_ATTEMPTS = 5
 
 
 class UserManager(BaseUserManager):
@@ -50,9 +53,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = ["name"]
 
     def save(self, *args, **kwargs):
-        if not self.referral_owner_code:
+        if self.referral_owner_code:
+            return super().save(*args, **kwargs)
+        for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
             self.referral_owner_code = token_hex(5).upper()
-        super().save(*args, **kwargs)
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise IntegrityError("Unable to generate unique referral owner code.")
 
     def __str__(self):
         return self.email
@@ -71,6 +80,12 @@ class Referral(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        if not self.referral_code:
+        if self.referral_code:
+            return super().save(*args, **kwargs)
+        for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
             self.referral_code = token_hex(5).upper()
-        super().save(*args, **kwargs)
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise IntegrityError("Unable to generate unique referral code.")
