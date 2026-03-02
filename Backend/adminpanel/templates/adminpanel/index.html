@@ -1,0 +1,70 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'adminpanel/admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-shell">
+    <div class="dashboard-header">
+        <h2>{% trans "Business Overview" %}</h2>
+        <form method="get" class="dashboard-filter-form">
+            <label>
+                {% trans "Start date" %}
+                <input type="date" name="start_date" value="{{ dashboard_start_date }}">
+            </label>
+            <label>
+                {% trans "End date" %}
+                <input type="date" name="end_date" value="{{ dashboard_end_date }}">
+            </label>
+            <button type="submit" class="button default">{% trans "Apply" %}</button>
+        </form>
+    </div>
+
+    <div class="dashboard-cards">
+        <div class="dashboard-card">
+            <p>{% trans "Total Orders" %}</p>
+            <h3>{{ dashboard_total_orders }}</h3>
+        </div>
+        <div class="dashboard-card">
+            <p>{% trans "Revenue (Paid)" %}</p>
+            <h3>₹{{ dashboard_revenue }}</h3>
+        </div>
+        <div class="dashboard-card">
+            <p>{% trans "Pending Orders" %}</p>
+            <h3>{{ dashboard_pending_orders }}</h3>
+        </div>
+        <div class="dashboard-card">
+            <p>{% trans "Low Stock Alerts" %}</p>
+            <h3>{{ dashboard_low_stock_count }}</h3>
+        </div>
+    </div>
+
+    {% if dashboard_low_stock_items %}
+    <div class="dashboard-panel">
+        <h3>{% trans "Inventory Alerts" %}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>{% trans "Product" %}</th>
+                    <th>{% trans "Available" %}</th>
+                    <th>{% trans "Reorder Level" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stock in dashboard_low_stock_items %}
+                <tr>
+                    <td>{{ stock.product.name }}</td>
+                    <td>{{ stock.available }}</td>
+                    <td>{{ stock.reorder_level }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{{ block.super }}
+{% endblock %}
