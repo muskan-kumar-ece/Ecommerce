@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -438,3 +439,19 @@ class PaymentAPITests(TestCase):
             event.save()
         with self.assertRaises(ValidationError):
             event.delete()
+
+    def test_payment_event_rejects_queryset_update_and_delete(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-immutable-db",
+            razorpay_order_id="order_immutable_db_1",
+            amount=99900,
+        )
+        event = PaymentEvent.objects.create(payment=payment, event_type=PaymentEvent.EventType.CREATED)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PaymentEvent.objects.filter(id=event.id).update(metadata={"changed": True})
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PaymentEvent.objects.filter(id=event.id).delete()

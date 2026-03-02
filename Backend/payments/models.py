@@ -69,6 +69,12 @@ class PaymentEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(id__isnull=False),
+                name="prevent_update",
+            )
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk and PaymentEvent.objects.filter(pk=self.pk).exists():
