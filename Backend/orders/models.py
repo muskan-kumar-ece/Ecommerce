@@ -76,6 +76,7 @@ class Order(models.Model):
         db_index=True,
     )
     stock_deducted = models.BooleanField(default=False)
+    idempotency_key = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     tracking_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -86,6 +87,9 @@ class Order(models.Model):
             models.Index(fields=["user"]),
             models.Index(fields=["status"]),
             models.Index(fields=["payment_status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "idempotency_key"], name="unique_order_idempotency_key_per_user"),
         ]
 
     def __str__(self):

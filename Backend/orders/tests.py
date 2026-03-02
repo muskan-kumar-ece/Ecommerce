@@ -3,11 +3,12 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
 from .models import Cart, Order
+from .views import OrderViewSet
 
 
 class OrderModelTests(TestCase):
@@ -86,3 +87,35 @@ class OrderAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_order_create_is_idempotent_for_same_header_key(self):
+        user = get_user_model().objects.create_user(
+            email="idempotent@example.com",
+            password="StrongPass123",
+            name="Idempotent",
+        )
+        factory = APIRequestFactory()
+        view = OrderViewSet.as_view({"post": "create"})
+        payload = {"total_amount": "499.00"}
+        first_request = factory.post(
+            "/api/v1/orders/",
+            payload,
+            format="json",
+            headers={"Idempotency-Key": "order-key-1"},
+        )
+        force_authenticate(first_request, user=user)
+        first_response = view(first_request)
+        second_request = factory.post(
+            "/api/v1/orders/",
+            payload,
+            format="json",
+            headers={"Idempotency-Key": "order-key-1"},
+        )
+        force_authenticate(second_request, user=user)
+        second_response = view(second_request)
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Order.objects.get(id=first_response.data["id"]).idempotency_key, "order-key-1")
+        self.assertEqual(first_response.data["id"], second_response.data["id"])
+        self.assertEqual(Order.objects.filter(user=user, idempotency_key="order-key-1").count(), 1)
