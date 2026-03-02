@@ -9,12 +9,15 @@ from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.models import Order
+from products.models import Product
 
 from .models import Payment, PaymentWebhookEvent
 
@@ -31,6 +34,29 @@ def _compute_signature(message: str, secret: str) -> str:
 
 def _payment_entity(payload: dict) -> dict:
     return (((payload.get("payload") or {}).get("payment") or {}).get("entity") or {})
+
+
+def _deduct_order_stock(order: Order) -> None:
+    if order.stock_deducted:
+        return
+
+    order_items = list(order.items.all())
+    if not order_items:
+        order.stock_deducted = True
+        order.save(update_fields=["stock_deducted", "updated_at"])
+        return
+
+    product_ids = [item.product_id for item in order_items]
+    list(Product.objects.select_for_update().filter(id__in=product_ids))
+    for item in order_items:
+        updated = Product.objects.filter(id=item.product_id, stock_quantity__gte=item.quantity).update(
+            stock_quantity=F("stock_quantity") - item.quantity
+        )
+        if not updated:
+            raise ValidationError({"detail": "Insufficient stock for one or more items."})
+
+    order.stock_deducted = True
+    order.save(update_fields=["stock_deducted", "updated_at"])
 
 
 def _create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
@@ -183,6 +209,7 @@ class VerifyRazorpayPaymentView(APIView):
             payment.razorpay_signature = razorpay_signature
             payment.status = Payment.Status.CAPTURED
             payment.verified_at = timezone.now()
+            _deduct_order_stock(payment.order)
             payment.save(
                 update_fields=[
                     "razorpay_payment_id",
@@ -249,6 +276,7 @@ class RazorpayWebhookView(APIView):
                 current_status = payment.order.payment_status
                 next_status = Order.PaymentStatus.PAID
                 if next_status in allowed_order_status_transitions.get(current_status, set()):
+                    _deduct_order_stock(payment.order)
                     payment.status = Payment.Status.CAPTURED
                     payment.verified_at = timezone.now()
                     payment.order.payment_status = next_status

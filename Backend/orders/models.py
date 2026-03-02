@@ -75,6 +75,7 @@ class Order(models.Model):
         default=PaymentStatus.PENDING,
         db_index=True,
     )
+    stock_deducted = models.BooleanField(default=False)
     tracking_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

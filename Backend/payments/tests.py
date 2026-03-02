@@ -9,7 +9,8 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from orders.models import Order
+from orders.models import Order, OrderItem
+from products.models import Category, Product
 
 from .models import Payment, PaymentWebhookEvent
 
@@ -42,6 +43,16 @@ class PaymentAPITests(TestCase):
             name="Payer",
         )
         self.order = Order.objects.create(user=self.user, total_amount=Decimal("999.00"))
+        category = Category.objects.create(name="Payments")
+        self.product = Product.objects.create(
+            category=category,
+            name="Keyboard",
+            description="Mechanical keyboard",
+            price=Decimal("999.00"),
+            sku="PAY-001",
+            stock_quantity=5,
+        )
+        OrderItem.objects.create(order=self.order, product=self.product, quantity=2, price=Decimal("999.00"))
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
@@ -93,8 +104,11 @@ class PaymentAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payment.refresh_from_db()
         self.order.refresh_from_db()
+        self.product.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertTrue(self.order.stock_deducted)
+        self.assertEqual(self.product.stock_quantity, 3)
         verified_at = payment.verified_at
 
         already_verified = self.client.post(
@@ -110,9 +124,11 @@ class PaymentAPITests(TestCase):
         self.assertEqual(already_verified.data["detail"], "Payment already verified.")
         payment.refresh_from_db()
         self.order.refresh_from_db()
+        self.product.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(payment.verified_at, verified_at)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.product.stock_quantity, 3)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
         Payment.objects.create(
@@ -135,6 +151,39 @@ class PaymentAPITests(TestCase):
             format="json",
         )
         self.assertEqual(duplicate.status_code, status.HTTP_409_CONFLICT)
+
+    def test_payment_verification_fails_when_stock_is_insufficient(self):
+        low_stock_order = Order.objects.create(user=self.user, total_amount=Decimal("999.00"))
+        OrderItem.objects.create(order=low_stock_order, product=self.product, quantity=10, price=Decimal("999.00"))
+        payment = Payment.objects.create(
+            order=low_stock_order,
+            idempotency_key="idem-stock-low",
+            razorpay_order_id="order_stock_low",
+            amount=99900,
+        )
+        signature = hmac.new(
+            b"rzp_test_secret",
+            msg=b"order_stock_low|pay_stock_low",
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_stock_low",
+                "razorpay_payment_id": "pay_stock_low",
+                "razorpay_signature": signature,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        payment.refresh_from_db()
+        low_stock_order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CREATED)
+        self.assertEqual(low_stock_order.payment_status, Order.PaymentStatus.PENDING)
+        self.assertFalse(low_stock_order.stock_deducted)
+        self.assertEqual(self.product.stock_quantity, 5)
 
     def test_webhook_idempotency(self):
         payment = Payment.objects.create(
@@ -234,3 +283,33 @@ class PaymentAPITests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.FAILED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)
+
+    def test_webhook_captured_deducts_stock_once(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-captured",
+            razorpay_order_id="order_webhook_4",
+            amount=99900,
+        )
+        payload = {
+            "event": "payment.captured",
+            "payload": {"payment": {"entity": {"id": "pay_web_4", "order_id": "order_webhook_4"}}},
+        }
+        body = json.dumps(payload).encode()
+        signature = hmac.new(b"rzp_webhook_secret", msg=body, digestmod=hashlib.sha256).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_RAZORPAY_SIGNATURE=signature,
+            HTTP_X_RAZORPAY_EVENT_ID="evt_4",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CAPTURED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertTrue(self.order.stock_deducted)
+        self.assertEqual(self.product.stock_quantity, 3)
