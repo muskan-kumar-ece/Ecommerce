@@ -15,8 +15,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="font-sans">
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen font-sans bg-neutral-50 text-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
         <QueryProvider>
           <AuthProvider>{children}</AuthProvider>
         </QueryProvider>
