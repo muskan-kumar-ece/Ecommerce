@@ -348,3 +348,52 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
+
+    def test_refund_order_is_idempotent(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-refund",
+            razorpay_order_id="order_refund_1",
+            amount=99900,
+            status=Payment.Status.CAPTURED,
+        )
+        self.order.payment_status = Order.PaymentStatus.PAID
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["payment_status", "status", "updated_at"])
+
+        response = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.REFUNDED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.REFUNDED)
+        self.assertEqual(self.order.status, Order.Status.REFUNDED)
+
+        second = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.data["detail"], "Order already refunded.")
+
+    def test_refund_order_rejects_unpaid_order(self):
+        Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-refund-unpaid",
+            razorpay_order_id="order_refund_2",
+            amount=99900,
+            status=Payment.Status.CREATED,
+        )
+
+        response = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"], "Only paid orders can be refunded.")

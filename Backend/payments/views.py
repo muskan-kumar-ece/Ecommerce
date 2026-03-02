@@ -234,6 +234,44 @@ class VerifyRazorpayPaymentView(APIView):
         return Response({"detail": "Payment verified successfully."}, status=status.HTTP_200_OK)
 
 
+class RefundOrderView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        order_id = request.data.get("order_id")
+        if not order_id:
+            return Response({"detail": "order_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        order = Order.objects.select_for_update().filter(id=order_id, user=request.user).first()
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if order.payment_status == Order.PaymentStatus.REFUNDED and order.status == Order.Status.REFUNDED:
+            return Response({"detail": "Order already refunded."}, status=status.HTTP_200_OK)
+        if order.payment_status == Order.PaymentStatus.REFUNDED:
+            order.status = Order.Status.REFUNDED
+            order.save(update_fields=["status", "updated_at"])
+            return Response({"detail": "Order already refunded."}, status=status.HTTP_200_OK)
+        if order.payment_status != Order.PaymentStatus.PAID:
+            return Response({"detail": "Only paid orders can be refunded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        payment = (
+            Payment.objects.select_for_update()
+            .filter(order=order, status=Payment.Status.CAPTURED)
+            .order_by("-created_at")
+            .first()
+        )
+        if not payment:
+            return Response({"detail": "Captured payment not found for this order."}, status=status.HTTP_400_BAD_REQUEST)
+
+        payment.status = Payment.Status.REFUNDED
+        payment.save(update_fields=["status", "updated_at"])
+        order.payment_status = Order.PaymentStatus.REFUNDED
+        order.status = Order.Status.REFUNDED
+        order.save(update_fields=["payment_status", "status", "updated_at"])
+        return Response({"detail": "Order refunded successfully."}, status=status.HTTP_200_OK)
+
+
 class RazorpayWebhookView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
