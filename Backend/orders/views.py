@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from rest_framework import permissions, viewsets
 
 from .models import Cart, CartItem, Order, OrderItem, ShippingAddress
@@ -42,7 +43,14 @@ class OrderViewSet(viewsets.ModelViewSet):
             if existing_order:
                 serializer.instance = existing_order
                 return
-            serializer.save(user=self.request.user, idempotency_key=idempotency_key)
+            try:
+                serializer.save(user=self.request.user, idempotency_key=idempotency_key)
+            except IntegrityError:
+                existing_order = Order.objects.filter(user=self.request.user, idempotency_key=idempotency_key).first()
+                if existing_order:
+                    serializer.instance = existing_order
+                    return
+                raise
             return
         serializer.save(user=self.request.user)
 
