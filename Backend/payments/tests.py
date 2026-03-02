@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -12,7 +13,7 @@ from rest_framework.test import APIClient
 from orders.models import Order, OrderItem
 from products.models import Category, Product
 
-from .models import Payment, PaymentWebhookEvent
+from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 
 class MockHTTPResponse:
@@ -110,6 +111,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.VERIFIED).count(), 1)
         verified_at = payment.verified_at
         order_updated_at = self.order.updated_at
 
@@ -133,6 +135,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertEqual(self.order.updated_at, order_updated_at)
         self.assertEqual(self.product.stock_quantity, 3)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
         Payment.objects.create(
@@ -155,6 +158,8 @@ class PaymentAPITests(TestCase):
             format="json",
         )
         self.assertEqual(duplicate.status_code, status.HTTP_409_CONFLICT)
+        duplicate_payment = Payment.objects.get(razorpay_order_id="order_ver_2")
+        self.assertEqual(duplicate_payment.events.filter(event_type=PaymentEvent.EventType.DUPLICATE).count(), 1)
 
     def test_payment_verification_fails_when_stock_is_insufficient(self):
         low_stock_order = Order.objects.create(user=self.user, total_amount=Decimal("999.00"))
@@ -372,6 +377,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(payment.status, Payment.Status.REFUNDED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.REFUNDED)
         self.assertEqual(self.order.status, Order.Status.REFUNDED)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REFUNDED).count(), 1)
 
         second = self.client.post(
             "/api/v1/payments/refund/",
@@ -380,6 +386,7 @@ class PaymentAPITests(TestCase):
         )
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.data["detail"], "Order already refunded.")
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
 
     def test_refund_order_rejects_unpaid_order(self):
         Payment.objects.create(
@@ -397,3 +404,37 @@ class PaymentAPITests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["detail"], "Only paid orders can be refunded.")
+
+    def test_payment_verification_logs_failed_event_for_invalid_signature(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-bad-sig",
+            razorpay_order_id="order_bad_sig_1",
+            amount=99900,
+        )
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_bad_sig_1",
+                "razorpay_payment_id": "pay_bad_sig_1",
+                "razorpay_signature": "invalid-signature",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.FAILED).count(), 1)
+
+    def test_payment_event_is_immutable(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-immutable",
+            razorpay_order_id="order_immutable_1",
+            amount=99900,
+        )
+        event = PaymentEvent.objects.create(payment=payment, event_type=PaymentEvent.EventType.CREATED)
+        event.metadata = {"changed": True}
+        with self.assertRaises(ValidationError):
+            event.save()
+        with self.assertRaises(ValidationError):
+            event.delete()

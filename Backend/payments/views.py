@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from orders.models import Order
 from products.models import Product
 
-from .models import Payment, PaymentWebhookEvent
+from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -187,9 +187,19 @@ class VerifyRazorpayPaymentView(APIView):
             if not payment:
                 return Response({"detail": "Payment not found."}, status=status.HTTP_404_NOT_FOUND)
             if payment.order.payment_status == Order.PaymentStatus.PAID:
+                PaymentEvent.objects.create(
+                    payment=payment,
+                    event_type=PaymentEvent.EventType.REPLAY,
+                    metadata={"reason": "already_paid"},
+                )
                 return Response({"detail": "Payment already verified."}, status=status.HTTP_200_OK)
             duplicate = Payment.objects.filter(razorpay_payment_id=razorpay_payment_id).exclude(id=payment.id).exists()
             if duplicate:
+                PaymentEvent.objects.create(
+                    payment=payment,
+                    event_type=PaymentEvent.EventType.DUPLICATE,
+                    metadata={"razorpay_payment_id": razorpay_payment_id},
+                )
                 logger.warning("Duplicate Razorpay payment id received: %s", razorpay_payment_id)
                 return Response({"detail": "Duplicate payment id."}, status=status.HTTP_409_CONFLICT)
 
@@ -201,6 +211,11 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.status = Payment.Status.FAILED
                 payment.failure_reason = "Invalid signature"
                 payment.save(update_fields=["status", "failure_reason", "updated_at"])
+                PaymentEvent.objects.create(
+                    payment=payment,
+                    event_type=PaymentEvent.EventType.FAILED,
+                    metadata={"reason": "invalid_signature"},
+                )
                 payment.order.payment_status = Order.PaymentStatus.FAILED
                 payment.order.save(update_fields=["payment_status", "updated_at"])
                 logger.warning("Payment signature verification failed for order_id=%s", payment.order_id)
@@ -230,6 +245,11 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.order.status = Order.Status.CONFIRMED
                 order_update_fields.append("status")
             payment.order.save(update_fields=order_update_fields)
+            PaymentEvent.objects.create(
+                payment=payment,
+                event_type=PaymentEvent.EventType.VERIFIED,
+                metadata={"razorpay_payment_id": razorpay_payment_id},
+            )
 
         return Response({"detail": "Payment verified successfully."}, status=status.HTTP_200_OK)
 
@@ -246,11 +266,17 @@ class RefundOrderView(APIView):
         order = Order.objects.select_for_update().filter(id=order_id, user=request.user).first()
         if not order:
             return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
-        if order.payment_status == Order.PaymentStatus.REFUNDED and order.status == Order.Status.REFUNDED:
-            return Response({"detail": "Order already refunded."}, status=status.HTTP_200_OK)
         if order.payment_status == Order.PaymentStatus.REFUNDED:
-            order.status = Order.Status.REFUNDED
-            order.save(update_fields=["status", "updated_at"])
+            if order.status != Order.Status.REFUNDED:
+                order.status = Order.Status.REFUNDED
+                order.save(update_fields=["status", "updated_at"])
+            payment = Payment.objects.filter(order=order).order_by("-created_at").first()
+            if payment:
+                PaymentEvent.objects.create(
+                    payment=payment,
+                    event_type=PaymentEvent.EventType.REPLAY,
+                    metadata={"reason": "already_refunded"},
+                )
             return Response({"detail": "Order already refunded."}, status=status.HTTP_200_OK)
         if order.payment_status != Order.PaymentStatus.PAID:
             return Response({"detail": "Only paid orders can be refunded."}, status=status.HTTP_400_BAD_REQUEST)
@@ -266,6 +292,11 @@ class RefundOrderView(APIView):
 
         payment.status = Payment.Status.REFUNDED
         payment.save(update_fields=["status", "updated_at"])
+        PaymentEvent.objects.create(
+            payment=payment,
+            event_type=PaymentEvent.EventType.REFUNDED,
+            metadata={"order_id": order.id},
+        )
         order.payment_status = Order.PaymentStatus.REFUNDED
         order.status = Order.Status.REFUNDED
         order.save(update_fields=["payment_status", "status", "updated_at"])
