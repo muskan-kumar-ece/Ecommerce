@@ -136,6 +136,7 @@ CSRF_TRUSTED_ORIGINS = config(
     default="http://localhost:3000",
     cast=Csv(),
 )
+FRONTEND_APP_URL = config("FRONTEND_APP_URL", default="http://localhost:3000")
 
 RAZORPAY_KEY_ID = config("RAZORPAY_KEY_ID", default="")
 RAZORPAY_KEY_SECRET = config("RAZORPAY_KEY_SECRET", default="")

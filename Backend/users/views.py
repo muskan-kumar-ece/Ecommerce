@@ -1,6 +1,7 @@
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
@@ -42,7 +43,7 @@ class ReferralSummaryView(APIView):
             .values_list("code", flat=True)
         )
         referral_code = request.user.referral_owner_code or ""
-        referral_link = request.build_absolute_uri(f"/register/?{urlencode({'ref': referral_code})}")
+        referral_link = f"{settings.FRONTEND_APP_URL.rstrip('/')}/register/?{urlencode({'ref': referral_code})}"
 
         serializer = ReferralSummarySerializer(
             data={

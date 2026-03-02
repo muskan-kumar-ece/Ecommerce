@@ -1,5 +1,7 @@
-from django.contrib.auth import get_user_model
 from decimal import Decimal
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -114,7 +116,7 @@ class ReferralSummaryAPITests(TestCase):
             per_user_limit=1,
             eligible_user=self.user,
             valid_from=now,
-            valid_until=now,
+            valid_until=now + timedelta(days=7),
             is_active=True,
         )
 
