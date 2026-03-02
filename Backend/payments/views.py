@@ -29,6 +29,10 @@ def _compute_signature(message: str, secret: str) -> str:
     return hmac.new(secret.encode(), msg=message.encode(), digestmod=hashlib.sha256).hexdigest()
 
 
+def _payment_entity(payload: dict) -> dict:
+    return (((payload.get("payload") or {}).get("payment") or {}).get("entity") or {})
+
+
 def _create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
     payload = json.dumps(
         {
@@ -60,7 +64,11 @@ class CreateRazorpayOrderView(APIView):
 
     def post(self, request):
         if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-            logger.error("Razorpay key configuration is missing")
+            logger.error(
+                "Razorpay key configuration is missing: key_id=%s key_secret=%s",
+                bool(settings.RAZORPAY_KEY_ID),
+                bool(settings.RAZORPAY_KEY_SECRET),
+            )
             return Response({"detail": "Payment gateway configuration error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         order_id = request.data.get("order_id")
@@ -114,8 +122,8 @@ class CreateRazorpayOrderView(APIView):
                     status=razorpay_order.get("status", Payment.Status.CREATED),
                     raw_response=razorpay_order,
                 )
-        except (RazorpayIntegrationError, KeyError, InvalidOperation) as exc:
-            logger.exception("Order creation failed for order_id=%s", order_id)
+        except (RazorpayIntegrationError, KeyError, InvalidOperation):
+            logger.exception("Order creation failed")
             return Response({"detail": "Unable to create payment order."}, status=status.HTTP_502_BAD_GATEWAY)
         except IntegrityError:
             return Response({"detail": "Duplicate payment attempt detected."}, status=status.HTTP_409_CONFLICT)
@@ -196,7 +204,7 @@ class RazorpayWebhookView(APIView):
 
     def post(self, request):
         if not settings.RAZORPAY_WEBHOOK_SECRET:
-            logger.error("Razorpay webhook secret is missing")
+            logger.error("Razorpay webhook secret (RAZORPAY_WEBHOOK_SECRET) is not configured")
             return Response({"detail": "Webhook configuration error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         signature = request.META.get("HTTP_X_RAZORPAY_SIGNATURE", "")
@@ -219,7 +227,7 @@ class RazorpayWebhookView(APIView):
             return Response({"detail": "Webhook already processed."}, status=status.HTTP_200_OK)
 
         event_type = request.data.get("event")
-        entity = (((request.data.get("payload") or {}).get("payment") or {}).get("entity") or {})
+        entity = _payment_entity(request.data)
         razorpay_order_id = entity.get("order_id")
         if not razorpay_order_id:
             return Response({"detail": "Webhook accepted."}, status=status.HTTP_200_OK)
@@ -227,7 +235,7 @@ class RazorpayWebhookView(APIView):
         with transaction.atomic():
             payment = Payment.objects.select_for_update().select_related("order").filter(razorpay_order_id=razorpay_order_id).first()
             if not payment:
-                logger.error("No payment found for webhook razorpay_order_id=%s", razorpay_order_id)
+                logger.error("No payment found for webhook event_id=%s", event_id)
                 return Response({"detail": "Webhook accepted."}, status=status.HTTP_200_OK)
 
             payment.razorpay_payment_id = entity.get("id") or payment.razorpay_payment_id
