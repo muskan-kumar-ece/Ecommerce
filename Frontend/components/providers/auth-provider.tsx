@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { useEffect } from "react";
 
-import * as authApi from "@/lib/api/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 type AuthContextValue = {
   accessToken: string | null;
@@ -10,36 +10,14 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-const AuthContext = createContext<AuthContextValue | null>(null);
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const initialize = useAuthStore((state) => state.initialize);
 
-  const value = useMemo(
-    () => ({
-      accessToken,
-      login: async (email: string, password: string) => {
-        const token = await authApi.login({ email, password });
-        window.localStorage.setItem("access_token", token.access);
-        window.localStorage.setItem("refresh_token", token.refresh);
-        setAccessToken(token.access);
-      },
-      logout: () => {
-        window.localStorage.removeItem("access_token");
-        window.localStorage.removeItem("refresh_token");
-        setAccessToken(null);
-      },
-    }),
-    [accessToken],
-  );
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <>{children}</>;
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return context;
-}
+export const useAuth = (): AuthContextValue => useAuthStore((state) => state);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -13,14 +14,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
+  const loginMutation = useMutation({
+    mutationFn: () => login(email, password),
+    onSuccess: () => setMessage("Login successful."),
+    onError: () => setMessage("Login failed. Check your credentials."),
+  });
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    try {
-      await login(email, password);
-      setMessage("Login successful.");
-    } catch {
-      setMessage("Login failed. Check your credentials.");
-    }
+    loginMutation.mutate();
   };
 
   return (
@@ -39,8 +41,8 @@ export default function LoginPage() {
               placeholder="Password"
               required
             />
-            <Button type="submit" className="w-full">
-              Sign In
+            <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
+              {loginMutation.isPending ? "Signing in..." : "Sign In"}
             </Button>
             {message && <p className="text-sm text-slate-600">{message}</p>}
           </form>

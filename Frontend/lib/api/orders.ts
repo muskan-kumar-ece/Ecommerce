@@ -1,8 +1,14 @@
 import { apiClient } from "@/lib/api/client";
+import type { Order } from "@/lib/api/types";
 
-export async function createCheckoutSession(payload: { payment_method: string }) {
-  const { data } = await apiClient.post<{ order_id: number; payment_redirect_url?: string }>(
-    "/api/v1/orders/checkout/",
+export async function createOrder(payload: {
+  total_amount: string;
+  status: string;
+  payment_status: string;
+  tracking_id: string;
+}) {
+  const { data } = await apiClient.post<Order>(
+    "/api/v1/orders/",
     payload,
   );
   return data;

@@ -1,12 +1,16 @@
 import { apiClient } from "@/lib/api/client";
-import type { ApiListResponse, Product } from "@/lib/api/types";
+import type { Product } from "@/lib/api/types";
 
 export async function fetchProducts() {
-  const { data } = await apiClient.get<ApiListResponse<Product>>("/api/v1/products/products/");
-  return data.results;
+  const { data } = await apiClient.get<Product[]>("/api/v1/products/");
+  return data;
 }
 
 export async function fetchProductBySlug(slug: string) {
-  const { data } = await apiClient.get<Product>(`/api/v1/products/products/${slug}/`);
-  return data;
+  const products = await fetchProducts();
+  const product = products.find((item) => item.slug === slug);
+  if (!product) {
+    throw new Error("Product not found");
+  }
+  return product;
 }
