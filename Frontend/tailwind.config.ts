@@ -16,6 +16,7 @@ const config: Config = {
     },
     extend: {
       colors: {
+        background: "rgb(var(--background) / <alpha-value>)",
         primary: {
           50: "#EEF2FF",
           100: "#E0E7FF",

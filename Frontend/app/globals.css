@@ -2,8 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 249 250 251; /* neutral-50 */
+  }
+
+  .dark {
+    color-scheme: dark;
+    --background: 17 24 39; /* neutral-900 */
+  }
 }
 
 html {
