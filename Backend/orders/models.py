@@ -59,6 +59,7 @@ class Order(models.Model):
         SHIPPED = "shipped", "Shipped"
         DELIVERED = "delivered", "Delivered"
         CANCELLED = "cancelled", "Cancelled"
+        REFUNDED = "refunded", "Refunded"
 
     class PaymentStatus(models.TextChoices):
         PENDING = "pending", "Pending"

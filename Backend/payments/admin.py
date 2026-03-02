@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Payment, PaymentWebhookEvent
+from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 
 @admin.register(Payment)
@@ -35,3 +35,11 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
     list_display = ("event_id", "event_type", "processed_at")
     list_filter = ("event_type", "processed_at")
     search_fields = ("event_id", "event_type")
+
+
+@admin.register(PaymentEvent)
+class PaymentEventAdmin(admin.ModelAdmin):
+    list_display = ("id", "payment", "event_type", "created_at")
+    list_filter = ("event_type", "created_at")
+    search_fields = ("payment__razorpay_order_id", "payment__razorpay_payment_id", "event_type")
+    readonly_fields = ("payment", "event_type", "metadata", "created_at")

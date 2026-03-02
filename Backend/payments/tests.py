@@ -5,6 +5,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -12,7 +14,7 @@ from rest_framework.test import APIClient
 from orders.models import Order, OrderItem
 from products.models import Category, Product
 
-from .models import Payment, PaymentWebhookEvent
+from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 
 class MockHTTPResponse:
@@ -107,9 +109,12 @@ class PaymentAPITests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.VERIFIED).count(), 1)
         verified_at = payment.verified_at
+        order_updated_at = self.order.updated_at
 
         already_verified = self.client.post(
             "/api/v1/payments/verify/",
@@ -128,7 +133,10 @@ class PaymentAPITests(TestCase):
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(payment.verified_at, verified_at)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.updated_at, order_updated_at)
         self.assertEqual(self.product.stock_quantity, 3)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
         Payment.objects.create(
@@ -151,6 +159,8 @@ class PaymentAPITests(TestCase):
             format="json",
         )
         self.assertEqual(duplicate.status_code, status.HTTP_409_CONFLICT)
+        duplicate_payment = Payment.objects.get(razorpay_order_id="order_ver_2")
+        self.assertEqual(duplicate_payment.events.filter(event_type=PaymentEvent.EventType.DUPLICATE).count(), 1)
 
     def test_payment_verification_fails_when_stock_is_insufficient(self):
         low_stock_order = Order.objects.create(user=self.user, total_amount=Decimal("999.00"))
@@ -184,6 +194,37 @@ class PaymentAPITests(TestCase):
         self.assertEqual(low_stock_order.payment_status, Order.PaymentStatus.PENDING)
         self.assertFalse(low_stock_order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 5)
+
+    def test_payment_verification_keeps_confirmed_order_status(self):
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["status", "updated_at"])
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-confirmed",
+            razorpay_order_id="order_confirmed_1",
+            amount=99900,
+        )
+        signature = hmac.new(
+            b"rzp_test_secret",
+            msg=b"order_confirmed_1|pay_confirmed_1",
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_confirmed_1",
+                "razorpay_payment_id": "pay_confirmed_1",
+                "razorpay_signature": signature,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CAPTURED)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
 
     def test_webhook_idempotency(self):
         payment = Payment.objects.create(
@@ -313,3 +354,104 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
+
+    def test_refund_order_is_idempotent(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-refund",
+            razorpay_order_id="order_refund_1",
+            amount=99900,
+            status=Payment.Status.CAPTURED,
+        )
+        self.order.payment_status = Order.PaymentStatus.PAID
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["payment_status", "status", "updated_at"])
+
+        response = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.REFUNDED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.REFUNDED)
+        self.assertEqual(self.order.status, Order.Status.REFUNDED)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REFUNDED).count(), 1)
+
+        second = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.data["detail"], "Order already refunded.")
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
+
+    def test_refund_order_rejects_unpaid_order(self):
+        Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-refund-unpaid",
+            razorpay_order_id="order_refund_2",
+            amount=99900,
+            status=Payment.Status.CREATED,
+        )
+
+        response = self.client.post(
+            "/api/v1/payments/refund/",
+            {"order_id": self.order.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"], "Only paid orders can be refunded.")
+
+    def test_payment_verification_logs_failed_event_for_invalid_signature(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-bad-sig",
+            razorpay_order_id="order_bad_sig_1",
+            amount=99900,
+        )
+
+        response = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_bad_sig_1",
+                "razorpay_payment_id": "pay_bad_sig_1",
+                "razorpay_signature": "invalid-signature",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.FAILED).count(), 1)
+
+    def test_payment_event_is_immutable(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-immutable",
+            razorpay_order_id="order_immutable_1",
+            amount=99900,
+        )
+        event = PaymentEvent.objects.create(payment=payment, event_type=PaymentEvent.EventType.CREATED)
+        event.metadata = {"changed": True}
+        with self.assertRaises(ValidationError):
+            event.save()
+        with self.assertRaises(ValidationError):
+            event.delete()
+
+    def test_payment_event_rejects_queryset_update_and_delete(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-immutable-db",
+            razorpay_order_id="order_immutable_db_1",
+            amount=99900,
+        )
+        event = PaymentEvent.objects.create(payment=payment, event_type=PaymentEvent.EventType.CREATED)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PaymentEvent.objects.filter(id=event.id).update(metadata={"changed": True})
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PaymentEvent.objects.filter(id=event.id).delete()

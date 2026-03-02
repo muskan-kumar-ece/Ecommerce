@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -50,3 +51,35 @@ class PaymentWebhookEvent(models.Model):
 
     def __str__(self):
         return self.event_id
+
+
+class PaymentEvent(models.Model):
+    class EventType(models.TextChoices):
+        CREATED = "created", "Created"
+        VERIFIED = "verified", "Verified"
+        FAILED = "failed", "Failed"
+        DUPLICATE = "duplicate", "Duplicate"
+        REFUNDED = "refunded", "Refunded"
+        REPLAY = "replay", "Replay"
+
+    payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name="events")
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(id__isnull=False),
+                name="prevent_update",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and PaymentEvent.objects.filter(pk=self.pk).exists():
+            raise ValidationError("PaymentEvent is immutable and cannot be updated.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("PaymentEvent is immutable and cannot be deleted.")
