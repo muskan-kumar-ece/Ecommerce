@@ -95,6 +95,24 @@ class PaymentAPITests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        verified_at = payment.verified_at
+
+        already_verified = self.client.post(
+            "/api/v1/payments/verify/",
+            {
+                "razorpay_order_id": "order_ver_1",
+                "razorpay_payment_id": "pay_1",
+                "razorpay_signature": signature,
+            },
+            format="json",
+        )
+        self.assertEqual(already_verified.status_code, status.HTTP_200_OK)
+        self.assertEqual(already_verified.data["detail"], "Payment already verified.")
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CAPTURED)
+        self.assertEqual(payment.verified_at, verified_at)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
         Payment.objects.create(

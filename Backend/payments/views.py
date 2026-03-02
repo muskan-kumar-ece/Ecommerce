@@ -160,7 +160,7 @@ class VerifyRazorpayPaymentView(APIView):
             if not payment:
                 return Response({"detail": "Payment not found."}, status=status.HTTP_404_NOT_FOUND)
             if payment.order.payment_status == Order.PaymentStatus.PAID:
-                return Response({"detail": "Order already paid."}, status=status.HTTP_409_CONFLICT)
+                return Response({"detail": "Payment already verified."}, status=status.HTTP_200_OK)
             duplicate = Payment.objects.filter(razorpay_payment_id=razorpay_payment_id).exclude(id=payment.id).exists()
             if duplicate:
                 logger.warning("Duplicate Razorpay payment id received: %s", razorpay_payment_id)
