@@ -1,3 +1,7 @@
 from django.urls import path
 
-urlpatterns = []
+from .views import AnalyticsSummaryView
+
+urlpatterns = [
+    path("analytics/summary/", AnalyticsSummaryView.as_view(), name="analytics-summary"),
+]
