@@ -44,5 +44,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/cart/:path*", "/checkout/:path*", "/admin/:path*"],
+  matcher: ["/cart/:path*", "/checkout/:path*", "/referral/:path*", "/admin/:path*"],
 };
