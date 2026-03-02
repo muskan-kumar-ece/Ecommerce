@@ -1,23 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchProductBySlug } from "@/lib/api/products";
-import type { Product } from "@/lib/api/types";
 
 export default function ProductDetailPage({ params }: { params: { slug: string } }) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: product, isLoading, isError } = useQuery({
+    queryKey: ["product", params.slug],
+    queryFn: () => fetchProductBySlug(params.slug),
+  });
 
-  useEffect(() => {
-    fetchProductBySlug(params.slug)
-      .then(setProduct)
-      .catch(() => setError("Unable to load product details."));
-  }, [params.slug]);
-
-  if (error) return <p className="text-sm text-rose-600">{error}</p>;
-  if (!product) return <p className="text-sm text-slate-500">Loading product...</p>;
+  if (isError) return <p className="text-sm text-rose-600">Unable to load product details.</p>;
+  if (isLoading || !product) return <p className="text-sm text-slate-500">Loading product...</p>;
 
   return (
     <Card>

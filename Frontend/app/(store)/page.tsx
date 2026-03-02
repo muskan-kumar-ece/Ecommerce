@@ -1,23 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchProducts } from "@/lib/api/products";
-import type { Product } from "@/lib/api/types";
 
 export default function ProductListingPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchProducts()
-      .then(setProducts)
-      .catch(() => setError("Unable to load products from API."))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: products = [], isLoading, isError } = useQuery({
+    queryKey: ["products"],
+    queryFn: fetchProducts,
+  });
 
   return (
     <section className="space-y-6">
@@ -26,8 +19,8 @@ export default function ProductListingPage() {
         <p className="text-slate-500">Curated premium inventory from live APIs.</p>
       </div>
 
-      {loading && <p className="text-sm text-slate-500">Loading products...</p>}
-      {error && <p className="text-sm text-rose-600">{error}</p>}
+      {isLoading && <p className="text-sm text-slate-500">Loading products...</p>}
+      {isError && <p className="text-sm text-rose-600">Unable to load products from API.</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {products.map((product) => (
@@ -49,7 +42,7 @@ export default function ProductListingPage() {
         ))}
       </div>
 
-      {!loading && !error && products.length === 0 && (
+      {!isLoading && !isError && products.length === 0 && (
         <Card>
           <CardContent className="p-6 text-sm text-slate-600">No products found from the API.</CardContent>
         </Card>
