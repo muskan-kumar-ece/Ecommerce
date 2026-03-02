@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models import Count, DecimalField, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.permissions import IsAdminUser
@@ -21,7 +21,20 @@ class AnalyticsSummaryView(APIView):
         last_7_days_start = today - timedelta(days=6)
 
         metrics = Order.objects.aggregate(
-            total_revenue=Coalesce(
+            gross_revenue=Coalesce(
+                Sum(
+                    Coalesce(F("gross_amount"), F("total_amount")),
+                    filter=Q(payment_status=Order.PaymentStatus.PAID),
+                ),
+                Value(Decimal("0.00")),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            discount_amount=Coalesce(
+                Sum("coupon_discount", filter=Q(payment_status=Order.PaymentStatus.PAID)),
+                Value(Decimal("0.00")),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            net_revenue=Coalesce(
                 Sum("total_amount", filter=Q(payment_status=Order.PaymentStatus.PAID)),
                 Value(Decimal("0.00")),
                 output_field=DecimalField(max_digits=12, decimal_places=2),
@@ -65,6 +78,7 @@ class AnalyticsSummaryView(APIView):
         serializer = AnalyticsSummarySerializer(
             {
                 **metrics,
+                "total_revenue": metrics["net_revenue"],
                 "refund_rate_percent": round(refund_rate_percent, 2),
             }
         )

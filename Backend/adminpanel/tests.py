@@ -95,6 +95,8 @@ class AnalyticsSummaryAPITests(TestCase):
         paid_order = Order.objects.create(
             user=self.regular_user,
             total_amount=Decimal("100.00"),
+            gross_amount=Decimal("120.00"),
+            coupon_discount=Decimal("20.00"),
             payment_status=Order.PaymentStatus.PAID,
         )
         today_refunded = Order.objects.create(
@@ -105,6 +107,8 @@ class AnalyticsSummaryAPITests(TestCase):
         old_paid_order = Order.objects.create(
             user=self.regular_user,
             total_amount=Decimal("200.00"),
+            gross_amount=Decimal("200.00"),
+            coupon_discount=Decimal("0.00"),
             payment_status=Order.PaymentStatus.PAID,
         )
         Order.objects.filter(id=paid_order.id).update(created_at=timezone.now())
@@ -116,6 +120,9 @@ class AnalyticsSummaryAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["total_revenue"], "300.00")
+        self.assertEqual(response.data["gross_revenue"], "320.00")
+        self.assertEqual(response.data["discount_amount"], "20.00")
+        self.assertEqual(response.data["net_revenue"], "300.00")
         self.assertEqual(response.data["total_orders"], 3)
         self.assertEqual(response.data["total_paid_orders"], 2)
         self.assertEqual(response.data["total_refunded_orders"], 1)

@@ -3,6 +3,9 @@ from rest_framework import serializers
 
 class AnalyticsSummarySerializer(serializers.Serializer):
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    gross_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    discount_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    net_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
     total_orders = serializers.IntegerField()
     total_paid_orders = serializers.IntegerField()
     total_refunded_orders = serializers.IntegerField()
