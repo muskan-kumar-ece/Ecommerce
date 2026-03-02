@@ -47,3 +47,14 @@ export type Order = {
   created_at: string;
   updated_at: string;
 };
+
+export type AnalyticsSummary = {
+  total_revenue: string;
+  total_orders: number;
+  total_paid_orders: number;
+  total_refunded_orders: number;
+  refund_rate_percent: number;
+  today_revenue: string;
+  today_orders: number;
+  last_7_days_revenue: string;
+};
