@@ -119,7 +119,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(duplicate.status_code, status.HTTP_409_CONFLICT)
 
     def test_webhook_idempotency(self):
-        Payment.objects.create(
+        payment = Payment.objects.create(
             order=self.order,
             idempotency_key="idem-4",
             razorpay_order_id="order_webhook_1",
@@ -141,6 +141,10 @@ class PaymentAPITests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(PaymentWebhookEvent.objects.count(), 1)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.FAILED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)
 
         duplicate = self.client.post(
             "/api/v1/payments/webhook/",
@@ -151,3 +155,64 @@ class PaymentAPITests(TestCase):
         )
         self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
         self.assertEqual(PaymentWebhookEvent.objects.count(), 1)
+
+    def test_webhook_does_not_downgrade_paid_order(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-5",
+            razorpay_order_id="order_webhook_2",
+            amount=99900,
+        )
+        self.order.payment_status = Order.PaymentStatus.PAID
+        self.order.save(update_fields=["payment_status", "updated_at"])
+
+        payload = {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {"id": "pay_web_2", "order_id": "order_webhook_2"}}},
+        }
+        body = json.dumps(payload).encode()
+        signature = hmac.new(b"rzp_webhook_secret", msg=body, digestmod=hashlib.sha256).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_RAZORPAY_SIGNATURE=signature,
+            HTTP_X_RAZORPAY_EVENT_ID="evt_2",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CREATED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+
+    def test_webhook_does_not_change_failed_order_to_paid(self):
+        payment = Payment.objects.create(
+            order=self.order,
+            idempotency_key="idem-6",
+            razorpay_order_id="order_webhook_3",
+            amount=99900,
+            status=Payment.Status.FAILED,
+        )
+        self.order.payment_status = Order.PaymentStatus.FAILED
+        self.order.save(update_fields=["payment_status", "updated_at"])
+
+        payload = {
+            "event": "payment.captured",
+            "payload": {"payment": {"entity": {"id": "pay_web_3", "order_id": "order_webhook_3"}}},
+        }
+        body = json.dumps(payload).encode()
+        signature = hmac.new(b"rzp_webhook_secret", msg=body, digestmod=hashlib.sha256).hexdigest()
+
+        response = self.client.post(
+            "/api/v1/payments/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_RAZORPAY_SIGNATURE=signature,
+            HTTP_X_RAZORPAY_EVENT_ID="evt_3",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.FAILED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)

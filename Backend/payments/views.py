@@ -240,17 +240,42 @@ class RazorpayWebhookView(APIView):
 
             payment.razorpay_payment_id = entity.get("id") or payment.razorpay_payment_id
             payment.raw_response = request.data
+            allowed_order_status_transitions = {
+                Order.PaymentStatus.PENDING: {Order.PaymentStatus.PAID, Order.PaymentStatus.FAILED},
+                Order.PaymentStatus.PAID: set(),
+                Order.PaymentStatus.FAILED: set(),
+            }
             if event_type == "payment.captured":
-                payment.status = Payment.Status.CAPTURED
-                payment.verified_at = timezone.now()
-                payment.order.payment_status = Order.PaymentStatus.PAID
-                payment.order.save(update_fields=["payment_status", "updated_at"])
+                current_status = payment.order.payment_status
+                next_status = Order.PaymentStatus.PAID
+                if next_status in allowed_order_status_transitions.get(current_status, set()):
+                    payment.status = Payment.Status.CAPTURED
+                    payment.verified_at = timezone.now()
+                    payment.order.payment_status = next_status
+                    payment.order.save(update_fields=["payment_status", "updated_at"])
+                else:
+                    logger.warning(
+                        "Ignoring webhook transition %s -> %s for order_id=%s",
+                        current_status,
+                        next_status,
+                        payment.order_id,
+                    )
             elif event_type == "payment.failed":
-                payment.status = Payment.Status.FAILED
-                payment.failure_reason = entity.get("error_description", "")
-                payment.order.payment_status = Order.PaymentStatus.FAILED
-                payment.order.save(update_fields=["payment_status", "updated_at"])
-                logger.error("Payment failed via webhook for order_id=%s", payment.order_id)
+                current_status = payment.order.payment_status
+                next_status = Order.PaymentStatus.FAILED
+                if next_status in allowed_order_status_transitions.get(current_status, set()):
+                    payment.status = Payment.Status.FAILED
+                    payment.failure_reason = entity.get("error_description", "")
+                    payment.order.payment_status = next_status
+                    payment.order.save(update_fields=["payment_status", "updated_at"])
+                    logger.error("Payment failed via webhook for order_id=%s", payment.order_id)
+                else:
+                    logger.warning(
+                        "Ignoring webhook transition %s -> %s for order_id=%s",
+                        current_status,
+                        next_status,
+                        payment.order_id,
+                    )
             elif event_type == "payment.authorized":
                 payment.status = Payment.Status.AUTHORIZED
             payment.save()
