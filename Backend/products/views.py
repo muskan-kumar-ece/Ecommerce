@@ -17,7 +17,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Product.objects.select_related("category", "inventory").prefetch_related("images")
-        if self.request.user and self.request.user.is_staff:
+        if self.request.user.is_authenticated and self.request.user.is_staff:
             return queryset
         return queryset.filter(is_active=True)
 

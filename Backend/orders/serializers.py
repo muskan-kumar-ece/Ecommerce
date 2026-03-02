@@ -13,7 +13,7 @@ class CartSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     def validate_cart(self, cart):
         request = self.context.get("request")
-        if request and cart.user_id != request.user.id:
+        if request and request.user.is_authenticated and cart.user_id != request.user.id:
             raise serializers.ValidationError("You can only add items to your own cart.")
         return cart
 
@@ -42,7 +42,7 @@ class OrderSerializer(serializers.ModelSerializer):
 class OrderItemSerializer(serializers.ModelSerializer):
     def validate_order(self, order):
         request = self.context.get("request")
-        if request and order.user_id != request.user.id:
+        if request and request.user.is_authenticated and order.user_id != request.user.id:
             raise serializers.ValidationError("You can only add items to your own order.")
         return order
 
@@ -55,7 +55,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class ShippingAddressSerializer(serializers.ModelSerializer):
     def validate_order(self, order):
         request = self.context.get("request")
-        if request and order.user_id != request.user.id:
+        if request and request.user.is_authenticated and order.user_id != request.user.id:
             raise serializers.ValidationError("You can only add a shipping address to your own order.")
         return order
 

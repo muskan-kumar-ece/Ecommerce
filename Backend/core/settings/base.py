@@ -1,8 +1,8 @@
 from datetime import timedelta
-from django.core.management.utils import get_random_secret_key
 from pathlib import Path
 
 from decouple import Csv, config
+from django.core.management.utils import get_random_secret_key
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
