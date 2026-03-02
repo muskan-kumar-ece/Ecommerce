@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from products.models import Category, Product
 
-from .models import Order
+from .models import Cart, Order
 
 
 class OrderModelTests(TestCase):
@@ -52,3 +52,37 @@ class OrderAPITests(TestCase):
         response = client.post("/api/v1/orders/", {"total_amount": "999.00"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_cart_item_create_rejects_other_users_cart(self):
+        user = get_user_model().objects.create_user(
+            email="buyer1@example.com",
+            password="StrongPass123",
+            name="Buyer 1",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="buyer2@example.com",
+            password="StrongPass123",
+            name="Buyer 2",
+        )
+        category = Category.objects.create(name="Audio")
+        product = Product.objects.create(
+            category=category,
+            name="Headphones",
+            description="Noise cancelling",
+            price=Decimal("2499.00"),
+            sku="AUD-001",
+            stock_quantity=10,
+            is_refurbished=False,
+            condition_grade="A",
+        )
+        other_cart = Cart.objects.create(user=other_user)
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.post(
+            "/api/v1/orders/cart-items/",
+            {"cart": other_cart.id, "product": product.id, "quantity": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
