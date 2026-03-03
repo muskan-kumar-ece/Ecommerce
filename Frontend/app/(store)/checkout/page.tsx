@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { CartProvider, useCart } from "@/components/providers/cart-context";
+import { useCart } from "@/components/providers/cart-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -128,9 +128,5 @@ function CheckoutContent() {
 }
 
 export default function CheckoutPage() {
-  return (
-    <CartProvider>
-      <CheckoutContent />
-    </CartProvider>
-  );
+  return <CheckoutContent />;
 }
