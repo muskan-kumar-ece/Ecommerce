@@ -1,6 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { ArrowRight, ShieldCheck, Truck, RotateCcw } from "lucide-react";
 
+import { CartDrawer } from "@/components/layout/cart-drawer";
+import { CartProvider, type CartProduct, useCart } from "@/components/providers/cart-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -11,21 +16,36 @@ const featuredProducts = [
   { id: 4, name: "Quartz Desk Lamp", price: "₹2,199", description: "Soft ambient lighting with modern touch controls." },
 ];
 
-function ProductCard({ name, price, description }: { name: string; price: string; description: string }) {
+function ProductCard({
+  product,
+  onAdded,
+}: {
+  product: CartProduct & { description: string };
+  onAdded: () => void;
+}) {
+  const { addToCart } = useCart();
+
   return (
     <Card className="transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
       <CardContent className="p-0">
         <div className="aspect-square rounded-t-lg bg-neutral-100 dark:bg-neutral-800" />
       </CardContent>
       <CardHeader>
-        <CardTitle>{name}</CardTitle>
-        <data value={price.replace(/[^\d]/g, "")} className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
-          {price}
+        <CardTitle>{product.name}</CardTitle>
+        <data value={product.price.replace(/[^\d]/g, "")} className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
+          {product.price}
         </data>
       </CardHeader>
       <CardContent className="space-y-4">
-        <CardDescription className="text-sm text-neutral-600 dark:text-neutral-300">{description}</CardDescription>
-        <Button className="w-full motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-lg">
+        <CardDescription className="text-sm text-neutral-600 dark:text-neutral-300">{product.description}</CardDescription>
+        <Button
+          type="button"
+          onClick={() => {
+            addToCart(product);
+            onAdded();
+          }}
+          className="w-full motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-lg"
+        >
           Add to Cart
         </Button>
       </CardContent>
@@ -33,9 +53,14 @@ function ProductCard({ name, price, description }: { name: string; price: string
   );
 }
 
-export default function ProductListingPage() {
+function StorefrontContent() {
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const { totalItems } = useCart();
+
   return (
-    <div className="bg-gradient-to-b from-primary-50 via-white to-white dark:from-neutral-900 dark:via-neutral-950 dark:to-neutral-950">
+    <>
+      <CartDrawer open={isCartOpen} onClose={() => setIsCartOpen(false)} />
+      <div className="bg-gradient-to-b from-primary-50 via-white to-white dark:from-neutral-900 dark:via-neutral-950 dark:to-neutral-950">
       <section className="relative mx-auto flex min-h-[60vh] w-full max-w-6xl flex-col items-center justify-center overflow-hidden px-4 py-24 text-center">
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-200/40 blur-3xl dark:bg-primary-900/20" />
         <div className="max-w-3xl space-y-6">
@@ -50,6 +75,9 @@ export default function ProductListingPage() {
               <Link href="#featured-products">
                 Shop Collection <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
+            </Button>
+            <Button type="button" size="lg" variant="secondary" onClick={() => setIsCartOpen(true)}>
+              Cart ({totalItems})
             </Button>
             <Button asChild size="lg" variant="outline">
               <Link href="/referral">Explore Benefits</Link>
@@ -79,7 +107,7 @@ export default function ProductListingPage() {
         <h2 className="mb-8 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Featured Products</h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {featuredProducts.map((product) => (
-            <ProductCard key={product.id} name={product.name} price={product.price} description={product.description} />
+            <ProductCard key={product.id} product={product} onAdded={() => setIsCartOpen(true)} />
           ))}
         </div>
       </section>
@@ -120,6 +148,15 @@ export default function ProductListingPage() {
       <footer className="border-t border-neutral-200 px-4 py-8 text-center text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
         © {new Date().getFullYear()} Venopai Commerce. Crafted for a premium shopping experience.
       </footer>
-    </div>
+      </div>
+    </>
+  );
+}
+
+export default function ProductListingPage() {
+  return (
+    <CartProvider>
+      <StorefrontContent />
+    </CartProvider>
   );
 }
