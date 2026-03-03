@@ -9,8 +9,11 @@ function ToastProvider() {
   const { toasts, dismiss } = useToast();
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-3 pointer-events-none">
-      {toasts.slice(0, 4).map((item) => (
+    <div
+      aria-live="polite"
+      className="fixed top-4 right-4 z-50 flex flex-col gap-3 pointer-events-none"
+    >
+      {toasts.map((item) => (
         <Toast
           key={item.id}
           variant={item.variant}

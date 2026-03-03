@@ -39,14 +39,13 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
     const [isVisible, setIsVisible] = React.useState(false);
 
     React.useEffect(() => {
-      const frame = window.requestAnimationFrame(() => setIsVisible(true));
-      return () => window.cancelAnimationFrame(frame);
+      const frameId = window.requestAnimationFrame(() => setIsVisible(true));
+      return () => window.cancelAnimationFrame(frameId);
     }, []);
 
     return (
       <div
         ref={ref}
-        role="status"
         className={cn(
           toastVariants({ variant }),
           isVisible && "translate-x-0 opacity-100",
@@ -61,7 +60,7 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
         <button
           type="button"
           aria-label="Close toast"
-          className="opacity-70 hover:opacity-100 transition-opacity"
+          className="opacity-70 hover:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2 ring-offset-background rounded-sm"
           onClick={onClose}
         >
           <X className="h-4 w-4" />

@@ -20,10 +20,9 @@ interface ToastState {
 
 const TOAST_LIMIT = 4;
 const TOAST_DURATION = 4000;
-
-let count = 0;
 let memoryState: ToastState = { toasts: [] };
 const listeners = new Set<(state: ToastState) => void>();
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 function emit(state: ToastState) {
   memoryState = state;
@@ -31,19 +30,43 @@ function emit(state: ToastState) {
 }
 
 function dismiss(id: string) {
+  const timeout = toastTimeouts.get(id);
+  if (timeout) {
+    clearTimeout(timeout);
+    toastTimeouts.delete(id);
+  }
+
   emit({
     toasts: memoryState.toasts.filter((toast) => toast.id !== id),
   });
 }
 
 function toast({ title, description, variant = "info" }: ToastInput) {
-  const id = `${++count}`;
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const nextToasts = [{ id, title, description, variant }, ...memoryState.toasts].slice(
+    0,
+    TOAST_LIMIT,
+  );
+
+  memoryState.toasts
+    .filter((item) => !nextToasts.some((toastItem) => toastItem.id === item.id))
+    .forEach((item) => {
+      const timeout = toastTimeouts.get(item.id);
+      if (timeout) {
+        clearTimeout(timeout);
+        toastTimeouts.delete(item.id);
+      }
+    });
+
+  const timeout = setTimeout(() => dismiss(id), TOAST_DURATION);
+  toastTimeouts.set(id, timeout);
 
   emit({
-    toasts: [{ id, title, description, variant }, ...memoryState.toasts].slice(0, TOAST_LIMIT),
+    toasts: nextToasts,
   });
-
-  window.setTimeout(() => dismiss(id), TOAST_DURATION);
   return id;
 }
 
