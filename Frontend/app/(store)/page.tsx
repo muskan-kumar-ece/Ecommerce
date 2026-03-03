@@ -13,13 +13,17 @@ const featuredProducts = [
 
 function ProductCard({ name, price, description }: { name: string; price: string; description: string }) {
   return (
-    <Card>
+    <Card className="transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+      <CardContent className="p-0">
+        <div className="aspect-square rounded-t-lg bg-neutral-100 dark:bg-neutral-800" />
+      </CardContent>
       <CardHeader>
         <CardTitle>{name}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="flex items-center justify-between">
-        <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{price}</p>
+      <CardContent className="space-y-4">
+        <p className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{price}</p>
+        <Button className="w-full">Add to Cart</Button>
       </CardContent>
     </Card>
   );
@@ -28,9 +32,10 @@ function ProductCard({ name, price, description }: { name: string; price: string
 export default function ProductListingPage() {
   return (
     <div className="bg-gradient-to-b from-primary-50 via-white to-white dark:from-neutral-900 dark:via-neutral-950 dark:to-neutral-950">
-      <section className="mx-auto flex min-h-[60vh] w-full max-w-6xl flex-col items-center justify-center px-4 py-20 text-center">
+      <section className="relative mx-auto flex min-h-[60vh] w-full max-w-6xl flex-col items-center justify-center overflow-hidden px-4 py-24 text-center">
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-200/40 blur-3xl dark:bg-primary-900/20" />
         <div className="max-w-3xl space-y-6">
-          <h1 className="text-4xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 sm:text-5xl">
+          <h1 className="text-4xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 sm:text-5xl">
             Premium essentials designed for modern living.
           </h1>
           <p className="text-lg text-neutral-600 dark:text-neutral-300">
@@ -46,10 +51,11 @@ export default function ProductListingPage() {
               <Link href="/referral">Explore Benefits</Link>
             </Button>
           </div>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Free shipping over ₹999</p>
         </div>
       </section>
 
-      <section id="featured-products" className="mx-auto w-full max-w-6xl px-4 py-16">
+      <section id="featured-products" className="mx-auto w-full max-w-6xl border-t border-neutral-200/70 px-4 py-20 dark:border-neutral-800/70">
         <h2 className="mb-8 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Featured Products</h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {featuredProducts.map((product) => (
@@ -58,7 +64,7 @@ export default function ProductListingPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-6xl px-4 py-16">
+      <section className="mx-auto w-full max-w-6xl border-t border-neutral-200/70 px-4 py-20 dark:border-neutral-800/70">
         <h2 className="mb-8 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Why shop with us</h2>
         <div className="grid gap-6 md:grid-cols-3">
           <Card>
