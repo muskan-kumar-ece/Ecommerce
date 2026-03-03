@@ -32,10 +32,11 @@ export interface ToastProps
   title?: React.ReactNode;
   description?: React.ReactNode;
   onClose?: () => void;
+  exiting?: boolean;
 }
 
 const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
-  ({ className, variant, title, description, onClose, ...props }, ref) => {
+  ({ className, variant, title, description, onClose, exiting, ...props }, ref) => {
     const [isVisible, setIsVisible] = React.useState(false);
 
     React.useEffect(() => {
@@ -48,7 +49,7 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
         ref={ref}
         className={cn(
           toastVariants({ variant }),
-          isVisible && "translate-x-0 opacity-100",
+          exiting ? "translate-x-full opacity-0" : isVisible && "translate-x-0 opacity-100",
           className,
         )}
         {...props}
