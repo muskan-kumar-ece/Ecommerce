@@ -19,11 +19,15 @@ function ProductCard({ name, price, description }: { name: string; price: string
       </CardContent>
       <CardHeader>
         <CardTitle>{name}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <data value={price.replace(/[^\d]/g, "")} className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
+          {price}
+        </data>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{price}</p>
-        <Button className="w-full">Add to Cart</Button>
+        <CardDescription className="text-sm text-neutral-600 dark:text-neutral-300">{description}</CardDescription>
+        <Button className="w-full motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-lg">
+          Add to Cart
+        </Button>
       </CardContent>
     </Card>
   );
@@ -52,6 +56,22 @@ export default function ProductListingPage() {
             </Button>
           </div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">Free shipping over ₹999</p>
+        </div>
+      </section>
+      <section className="border-y border-neutral-200/70 bg-neutral-50 py-6 dark:border-neutral-800/70 dark:bg-neutral-900">
+        <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 text-center sm:grid-cols-3">
+          <div>
+            <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">4.8/5 Rating</p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">Trusted by shoppers</p>
+          </div>
+          <div>
+            <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">50K+ Orders</p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">Delivered nationwide</p>
+          </div>
+          <div>
+            <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">100% Secure</p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">Encrypted checkout</p>
+          </div>
         </div>
       </section>
 
