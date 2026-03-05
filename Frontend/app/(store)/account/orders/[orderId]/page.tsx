@@ -15,7 +15,8 @@ type OrderDetailsPageProps = {
   };
 };
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-IN", {
+const ORDER_DATE_LOCALE = "en-IN";
+const dateTimeFormatter = new Intl.DateTimeFormat(ORDER_DATE_LOCALE, {
   day: "2-digit",
   month: "short",
   year: "numeric",
@@ -40,12 +41,13 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
   const hasOutForDeliveryEvent = Boolean(
     order?.shipping_events?.some((event) => event.event_type === "out_for_delivery"),
   );
+  const isPaymentConfirmed = order?.payment_status === "paid" || order?.payment_status === "refunded";
   const timeline = [
     { label: "Order placed", completed: Boolean(order?.created_at), time: order?.created_at },
     {
       label: "Payment confirmed",
-      completed: order?.payment_status === "paid" || order?.payment_status === "refunded",
-      time: order?.payment_status === "paid" || order?.payment_status === "refunded" ? order?.updated_at : null,
+      completed: isPaymentConfirmed,
+      time: isPaymentConfirmed ? order?.updated_at : null,
     },
     { label: "Shipped", completed: Boolean(order?.shipped_at), time: order?.shipped_at },
     { label: "Out for delivery", completed: hasOutForDeliveryEvent, time: null },

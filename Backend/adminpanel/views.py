@@ -24,6 +24,8 @@ from .serializers import (
     AnalyticsSummarySerializer,
 )
 
+TRACKING_ID_PREFIX = "TRK"
+
 
 class AnalyticsSummaryView(APIView):
     permission_classes = [IsAdminUser]
@@ -204,12 +206,16 @@ class AdminShipOrderView(APIView):
         serializer = AdminShipOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if order.status == Order.Status.DELIVERED:
-            return Response({"detail": "Delivered orders cannot be marked as shipped."}, status=400)
+            return Response({"detail": "Cannot ship a delivered order."}, status=400)
         if order.status != Order.Status.SHIPPED:
             order.status = Order.Status.SHIPPED
         if not order.tracking_id:
-            order.tracking_id = f"TRK-{uuid4().hex[:12].upper()}"
-        order.shipping_provider = serializer.validated_data.get("shipping_provider") or order.shipping_provider or "Manual"
+            order.tracking_id = f"{TRACKING_ID_PREFIX}-{uuid4().hex[:12].upper()}"
+        shipping_provider = serializer.validated_data.get("shipping_provider")
+        if shipping_provider:
+            order.shipping_provider = shipping_provider
+        elif not order.shipping_provider:
+            order.shipping_provider = "Manual"
         if not order.shipped_at:
             order.shipped_at = timezone.now()
         order.save(update_fields=["status", "tracking_id", "shipping_provider", "shipped_at", "updated_at"])
