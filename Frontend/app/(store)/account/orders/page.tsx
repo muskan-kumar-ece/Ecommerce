@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchOrderItems, fetchOrders } from "@/lib/api/orders";
+import { formatOrderNumber } from "@/lib/order-utils";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -25,13 +26,6 @@ const toNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const toOrderNumber = (trackingId: string | null, orderId: number) => {
-  if (trackingId && /^VN-\d{5}$/.test(trackingId)) {
-    return trackingId;
-  }
-  return `VN-${orderId.toString().padStart(5, "0")}`;
-};
-
 const getStatusMeta = (status: string) => {
   if (status === "delivered") return { label: "Delivered", variant: "success" as const };
   if (status === "shipped") return { label: "Shipped", variant: "info" as const };
@@ -43,16 +37,16 @@ export default function OrdersPage() {
     queryKey: ["orders", "with-item-counts"],
     queryFn: async () => {
       const [orders, orderItems] = await Promise.all([fetchOrders(), fetchOrderItems()]);
+      const itemCountByOrder = orderItems.reduce<Record<number, number>>((counts, item) => {
+        counts[item.order] = (counts[item.order] ?? 0) + item.quantity;
+        return counts;
+      }, {});
 
       return orders.map((order) => {
-        const itemCount = orderItems
-          .filter((item) => item.order === order.id)
-          .reduce((total, item) => total + item.quantity, 0);
-
         return {
           ...order,
-          itemCount,
-          orderNumber: toOrderNumber(order.tracking_id, order.id),
+          itemCount: itemCountByOrder[order.id] ?? 0,
+          orderNumber: formatOrderNumber(order.id, order.tracking_id),
           statusMeta: getStatusMeta(order.status),
         };
       });
@@ -104,10 +98,7 @@ export default function OrdersPage() {
       {data && data.length > 0 ? (
         <div className="space-y-4">
           {data.map((order) => (
-            <Card
-              key={order.id}
-              className="border-neutral-200 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800"
-            >
+            <Card key={order.id} className="border-neutral-200 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800">
               <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle className="text-xl text-neutral-900 dark:text-neutral-100">{order.orderNumber}</CardTitle>
@@ -131,8 +122,12 @@ export default function OrdersPage() {
                   </p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="button">View Order Details</Button>
-                  <Button type="button" variant="secondary">Track Order</Button>
+                  <Button asChild>
+                    <Link href={`/account/orders/${order.id}`}>View Order Details</Link>
+                  </Button>
+                  <Button asChild variant="secondary">
+                    <Link href={`/account/orders/${order.id}/track`}>Track Order</Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
