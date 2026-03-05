@@ -141,6 +141,44 @@ class OrderEvent(models.Model):
         return f"Order {self.order_id}: {self.previous_status} -> {self.new_status}"
 
 
+class EmailEvent(models.Model):
+    class EmailType(models.TextChoices):
+        ORDER_CONFIRMED = "order_confirmed", "Order Confirmed"
+        PAYMENT_SUCCESS = "payment_success", "Payment Success"
+        ORDER_SHIPPED = "order_shipped", "Order Shipped"
+        ORDER_DELIVERED = "order_delivered", "Order Delivered"
+        ORDER_CANCELLED = "order_cancelled", "Order Cancelled"
+        REFUND_PROCESSED = "refund_processed", "Refund Processed"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="email_events")
+    email_type = models.CharField(max_length=40, choices=EmailType.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "email_type"],
+                name="unique_order_email_type_event",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["order", "email_type"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id} email {self.email_type}: {self.status}"
+
+
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="order_items")

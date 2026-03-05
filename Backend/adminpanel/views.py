@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from orders.notifications import send_order_email
 from orders.models import Order, OrderEvent
 from users.models import Referral
 
@@ -175,6 +176,12 @@ class AdminOrderStatusUpdateView(APIView):
                 changed_by=request.user,
                 note=note,
             )
+            if new_status == Order.Status.SHIPPED:
+                send_order_email("order_shipped", order)
+            elif new_status == Order.Status.DELIVERED:
+                send_order_email("order_delivered", order)
+            elif new_status == Order.Status.CANCELLED:
+                send_order_email("order_cancelled", order)
 
         order = (
             Order.objects.select_related("user", "shipping_address")

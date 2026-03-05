@@ -1,15 +1,19 @@
 from decimal import Decimal
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Coupon, CouponUsage, Order, OrderEvent, OrderItem, ShippingAddress
+from .models import Cart, Coupon, CouponUsage, EmailEvent, Order, OrderEvent, OrderItem, ShippingAddress
+from .notifications import send_order_email
 from .views import OrderViewSet
 
 
@@ -533,3 +537,68 @@ class AdminOrderManagementAPITests(TestCase):
         self.assertEqual(event.previous_status, Order.Status.PENDING)
         self.assertEqual(event.new_status, Order.Status.CONFIRMED)
         self.assertEqual(event.changed_by, self.admin_user)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_status_update_triggers_shipped_and_delivered_emails(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+
+        shipped_response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": Order.Status.SHIPPED, "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+        delivered_response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": Order.Status.DELIVERED, "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+
+        self.assertEqual(shipped_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(delivered_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_send_order_email.call_count, 2)
+        mock_send_order_email.assert_any_call("order_shipped", self.order)
+        mock_send_order_email.assert_any_call("order_delivered", self.order)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="no-reply@example.com",
+    SUPPORT_EMAIL="support@example.com",
+)
+class OrderNotificationServiceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="notify@example.com",
+            password="StrongPass123",
+            name="Notify User",
+        )
+        self.category = Category.objects.create(name="NotifyCategory")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Notify Product",
+            description="Notification test product",
+            price=Decimal("2500.00"),
+            sku="NTF-001",
+            stock_quantity=50,
+        )
+        self.order = Order.objects.create(
+            user=self.user,
+            total_amount=Decimal("5000.00"),
+            status=Order.Status.CONFIRMED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        OrderItem.objects.create(order=self.order, product=self.product, quantity=2, price=self.product.price)
+
+    def test_send_order_email_sends_once_and_persists_sent_event(self):
+        first = send_order_email("payment_success", self.order)
+        second = send_order_email("payment_success", self.order)
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(len(mail.outbox), 1)
+        sent_event = EmailEvent.objects.get(order=self.order, email_type=EmailEvent.EmailType.PAYMENT_SUCCESS)
+        self.assertEqual(sent_event.status, EmailEvent.Status.SENT)
+        self.assertIsNotNone(sent_event.sent_at)
+        self.assertIn(f"Order ID: {self.order.id}", mail.outbox[0].body)
+        self.assertIn("Notify Product", mail.outbox[0].body)
+        self.assertIn("support@example.com", mail.outbox[0].body)

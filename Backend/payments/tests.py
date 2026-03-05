@@ -82,7 +82,8 @@ class PaymentAPITests(TestCase):
         self.assertEqual(Payment.objects.count(), 1)
         self.assertEqual(mock_urlopen.call_count, 1)
 
-    def test_payment_verification_and_duplicate_prevention(self):
+    @patch("payments.views.send_order_email")
+    def test_payment_verification_and_duplicate_prevention(self, mock_send_order_email):
         payment = Payment.objects.create(
             order=self.order,
             idempotency_key="idem-2",
@@ -114,6 +115,7 @@ class PaymentAPITests(TestCase):
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
         self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.VERIFIED).count(), 1)
+        mock_send_order_email.assert_called_once_with("payment_success", self.order)
         verified_at = payment.verified_at
         order_updated_at = self.order.updated_at
 
@@ -138,6 +140,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.updated_at, order_updated_at)
         self.assertEqual(self.product.stock_quantity, 3)
         self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
+        self.assertEqual(mock_send_order_email.call_count, 1)
 
         another_order = Order.objects.create(user=self.user, total_amount=Decimal("100.00"))
         Payment.objects.create(
@@ -373,7 +376,8 @@ class PaymentAPITests(TestCase):
         self.assertEqual(payment.status, Payment.Status.FAILED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)
 
-    def test_webhook_captured_deducts_stock_once(self):
+    @patch("payments.views.send_order_email")
+    def test_webhook_captured_deducts_stock_once(self, mock_send_order_email):
         payment = Payment.objects.create(
             order=self.order,
             idempotency_key="idem-captured",
@@ -400,10 +404,13 @@ class PaymentAPITests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.CAPTURED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
+        mock_send_order_email.assert_called_once_with("payment_success", self.order)
 
-    def test_refund_order_is_idempotent(self):
+    @patch("payments.views.send_order_email")
+    def test_refund_order_is_idempotent(self, mock_send_order_email):
         payment = Payment.objects.create(
             order=self.order,
             idempotency_key="idem-refund",
@@ -427,6 +434,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.REFUNDED)
         self.assertEqual(self.order.status, Order.Status.REFUNDED)
         self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REFUNDED).count(), 1)
+        mock_send_order_email.assert_called_once_with("refund_processed", self.order)
 
         second = self.client.post(
             "/api/v1/payments/refund/",
@@ -436,6 +444,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.data["detail"], "Order already refunded.")
         self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.REPLAY).count(), 1)
+        self.assertEqual(mock_send_order_email.call_count, 1)
 
     def test_refund_order_rejects_unpaid_order(self):
         Payment.objects.create(

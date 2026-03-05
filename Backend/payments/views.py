@@ -18,6 +18,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from orders.notifications import send_order_email
 from orders.models import Coupon, Order
 from products.models import Product
 from users.models import Referral
@@ -295,6 +296,7 @@ class VerifyRazorpayPaymentView(APIView):
                 event_type=PaymentEvent.EventType.VERIFIED,
                 metadata={"razorpay_payment_id": razorpay_payment_id},
             )
+            send_order_email("payment_success", payment.order)
 
         return Response({"detail": "Payment verified successfully."}, status=status.HTTP_200_OK)
 
@@ -345,6 +347,7 @@ class RefundOrderView(APIView):
         order.payment_status = Order.PaymentStatus.REFUNDED
         order.status = Order.Status.REFUNDED
         order.save(update_fields=["payment_status", "status", "updated_at"])
+        send_order_email("refund_processed", order)
         return Response({"detail": "Order refunded successfully."}, status=status.HTTP_200_OK)
 
 
@@ -403,8 +406,13 @@ class RazorpayWebhookView(APIView):
                     payment.status = Payment.Status.CAPTURED
                     payment.verified_at = timezone.now()
                     payment.order.payment_status = next_status
-                    payment.order.save(update_fields=["payment_status", "updated_at"])
+                    order_update_fields = ["payment_status", "updated_at"]
+                    if payment.order.status != Order.Status.CONFIRMED:
+                        payment.order.status = Order.Status.CONFIRMED
+                        order_update_fields.append("status")
+                    payment.order.save(update_fields=order_update_fields)
                     _issue_referral_reward(payment.order)
+                    send_order_email("payment_success", payment.order)
                 else:
                     logger.warning(
                         "Ignoring webhook transition %s -> %s for order_id=%s",

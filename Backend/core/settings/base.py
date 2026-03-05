@@ -138,6 +138,15 @@ CSRF_TRUSTED_ORIGINS = config(
 )
 FRONTEND_APP_URL = config("FRONTEND_APP_URL", default="http://localhost:3000")
 
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = config("EMAIL_HOST", default="localhost")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_HOST_USER = config("EMAIL_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_PASSWORD", default="")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "no-reply@venopai.com")
+SUPPORT_EMAIL = config("SUPPORT_EMAIL", default=EMAIL_HOST_USER or "support@venopai.com")
+
 RAZORPAY_KEY_ID = config("RAZORPAY_KEY_ID", default="")
 RAZORPAY_KEY_SECRET = config("RAZORPAY_KEY_SECRET", default="")
 RAZORPAY_WEBHOOK_SECRET = config("RAZORPAY_WEBHOOK_SECRET", default="")
