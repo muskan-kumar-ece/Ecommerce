@@ -1,17 +1,23 @@
- "use client";
-
 import Link from "next/link";
 import { CheckCircle } from "lucide-react";
-import { useMemo } from "react";
+import { randomInt } from "crypto";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function OrderSuccessPage() {
-  const orderNumber = useMemo(
-    () => `VN-${Math.floor(10000 + Math.random() * 90000)}`,
-    [],
-  );
+type OrderSuccessPageProps = {
+  searchParams?: {
+    order?: string;
+  };
+};
+
+const orderPattern = /^VN-\d{5}$/;
+
+export default function OrderSuccessPage({ searchParams }: OrderSuccessPageProps) {
+  const requestedOrder = searchParams?.order ?? "";
+  const orderNumber = orderPattern.test(requestedOrder)
+    ? requestedOrder
+    : `VN-${randomInt(0, 100000).toString().padStart(5, "0")}`;
 
   return (
     <div className="flex min-h-[calc(100vh-14rem)] items-center justify-center">
