@@ -48,6 +48,16 @@ export type Order = {
   updated_at: string;
 };
 
+export type OrderItem = {
+  id: number;
+  order: number;
+  product: number;
+  quantity: number;
+  price: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AnalyticsSummary = {
   total_revenue: string;
   total_orders: number;
