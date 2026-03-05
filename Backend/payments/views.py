@@ -27,6 +27,7 @@ from .models import Payment, PaymentEvent, PaymentWebhookEvent
 
 logger = logging.getLogger(__name__)
 MAX_CODE_GENERATION_ATTEMPTS = 5
+MAX_RETRY_ATTEMPTS = 3
 
 
 class RazorpayIntegrationError(Exception):
@@ -211,6 +212,75 @@ class CreateRazorpayOrderView(APIView):
         )
 
 
+class RetryPaymentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, order_id):
+        if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+            logger.error(
+                "Razorpay key configuration is missing: key_id=%s key_secret=%s",
+                bool(settings.RAZORPAY_KEY_ID),
+                bool(settings.RAZORPAY_KEY_SECRET),
+            )
+            return Response({"detail": "Payment gateway configuration error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        order = Order.objects.select_for_update().filter(id=order_id, user=request.user).first()
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if order.payment_status == Order.PaymentStatus.PAID:
+            return Response({"detail": "Payment already completed for this order."}, status=status.HTTP_409_CONFLICT)
+        if order.payment_status != Order.PaymentStatus.FAILED:
+            return Response({"detail": "Retry is only available for failed payments."}, status=status.HTTP_400_BAD_REQUEST)
+
+        retry_attempt = PaymentEvent.objects.filter(
+            payment__order=order,
+            event_type=PaymentEvent.EventType.RETRY_ATTEMPT,
+        ).count()
+        if retry_attempt >= MAX_RETRY_ATTEMPTS:
+            return Response({"detail": "Maximum payment retry attempts reached."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount_paise = int((Decimal(order.total_amount) * Decimal("100")).quantize(Decimal("1")))
+            razorpay_order = _create_razorpay_order(
+                amount=amount_paise,
+                currency="INR",
+                receipt=f"order_{order.id}_retry_{retry_attempt + 1}",
+            )
+            payment = Payment.objects.create(
+                order=order,
+                idempotency_key=f"retry-{order.id}-{uuid4().hex}",
+                razorpay_order_id=razorpay_order["id"],
+                amount=razorpay_order.get("amount", amount_paise),
+                currency=razorpay_order.get("currency", "INR"),
+                status=razorpay_order.get("status", Payment.Status.CREATED),
+                raw_response=razorpay_order,
+            )
+        except (RazorpayIntegrationError, KeyError, InvalidOperation):
+            logger.exception("Payment retry failed")
+            return Response({"detail": "Unable to create payment retry session."}, status=status.HTTP_502_BAD_GATEWAY)
+        except IntegrityError:
+            return Response({"detail": "Duplicate payment retry attempt detected."}, status=status.HTTP_409_CONFLICT)
+
+        PaymentEvent.objects.create(
+            payment=payment,
+            event_type=PaymentEvent.EventType.RETRY_ATTEMPT,
+            metadata={"attempt": retry_attempt + 1},
+        )
+
+        return Response(
+            {
+                "payment_id": payment.id,
+                "razorpay_order_id": payment.razorpay_order_id,
+                "amount": payment.amount,
+                "currency": payment.currency,
+                "key_id": settings.RAZORPAY_KEY_ID,
+                "retry_attempt": retry_attempt + 1,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -258,11 +328,12 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.save(update_fields=["status", "failure_reason", "updated_at"])
                 PaymentEvent.objects.create(
                     payment=payment,
-                    event_type=PaymentEvent.EventType.FAILED,
+                    event_type=PaymentEvent.EventType.PAYMENT_FAILED,
                     metadata={"reason": "invalid_signature"},
                 )
                 payment.order.payment_status = Order.PaymentStatus.FAILED
-                payment.order.save(update_fields=["payment_status", "updated_at"])
+                payment.order.status = Order.Status.PAYMENT_FAILED
+                payment.order.save(update_fields=["payment_status", "status", "updated_at"])
                 logger.warning("Payment signature verification failed for order_id=%s", payment.order_id)
                 return Response({"detail": "Invalid payment signature."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -293,7 +364,7 @@ class VerifyRazorpayPaymentView(APIView):
             _issue_referral_reward(payment.order)
             PaymentEvent.objects.create(
                 payment=payment,
-                event_type=PaymentEvent.EventType.VERIFIED,
+                event_type=PaymentEvent.EventType.PAYMENT_SUCCESS,
                 metadata={"razorpay_payment_id": razorpay_payment_id},
             )
             send_order_email("payment_success", payment.order)
@@ -413,6 +484,11 @@ class RazorpayWebhookView(APIView):
                         order_update_fields.append("status")
                     payment.order.save(update_fields=order_update_fields)
                     _issue_referral_reward(payment.order)
+                    PaymentEvent.objects.create(
+                        payment=payment,
+                        event_type=PaymentEvent.EventType.PAYMENT_SUCCESS,
+                        metadata={"source": "webhook", "razorpay_payment_id": payment.razorpay_payment_id},
+                    )
                     if should_send_payment_email:
                         send_order_email("payment_success", payment.order)
                 else:
@@ -429,7 +505,13 @@ class RazorpayWebhookView(APIView):
                     payment.status = Payment.Status.FAILED
                     payment.failure_reason = entity.get("error_description", "")
                     payment.order.payment_status = next_status
-                    payment.order.save(update_fields=["payment_status", "updated_at"])
+                    payment.order.status = Order.Status.PAYMENT_FAILED
+                    payment.order.save(update_fields=["payment_status", "status", "updated_at"])
+                    PaymentEvent.objects.create(
+                        payment=payment,
+                        event_type=PaymentEvent.EventType.PAYMENT_FAILED,
+                        metadata={"source": "webhook", "reason": payment.failure_reason or "payment_failed"},
+                    )
                     logger.error("Payment failed via webhook for order_id=%s", payment.order_id)
                 else:
                     logger.warning(

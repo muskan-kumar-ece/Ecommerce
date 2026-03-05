@@ -1,13 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Timeline } from "@/components/ui/timeline";
 import { cancelOrder, fetchOrder } from "@/lib/api/orders";
+import { retryPayment, verifyRazorpayPayment } from "@/lib/api/payments";
 import { fetchProducts } from "@/lib/api/products";
 import { ORDER_STATUS_META, PAYMENT_STATUS_META } from "@/lib/order-status";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -44,8 +48,43 @@ const toNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+type RazorpayOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  order_id: string;
+  name: string;
+  description: string;
+  handler: (response: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => void;
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
+  }
+}
+
+const loadRazorpayScript = async () => {
+  if (typeof window === "undefined") return false;
+  if (window.Razorpay) return true;
+  return new Promise<boolean>((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
   const queryClient = useQueryClient();
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retrySuccess, setRetrySuccess] = useState<string | null>(null);
   const orderNumber = formatOrderNumber(params.orderId);
   const { data: order, isLoading } = useQuery({
     queryKey: ["order", params.orderId],
@@ -82,6 +121,51 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
     },
   });
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const session = await retryPayment(params.orderId);
+      const isScriptLoaded = await loadRazorpayScript();
+      if (!isScriptLoaded || !window.Razorpay) {
+        throw new Error("Unable to load payment gateway. Please try again.");
+      }
+      return session;
+    },
+    onSuccess: (session) => {
+      setRetryError(null);
+      const checkout = new window.Razorpay!({
+        key: session.key_id,
+        amount: session.amount,
+        currency: session.currency,
+        order_id: session.razorpay_order_id,
+        name: "Venopai Commerce",
+        description: `Retry payment for ${orderNumber}`,
+        handler: async (response) => {
+          try {
+            await verifyRazorpayPayment(response);
+            setRetrySuccess("Payment retry was successful.");
+            queryClient.invalidateQueries({ queryKey: ["order", params.orderId] });
+            queryClient.invalidateQueries({ queryKey: ["my-orders"] });
+          } catch {
+            setRetryError("Payment verification failed. Please retry once more.");
+          }
+        },
+      });
+      checkout.open();
+    },
+    onError: (error) => {
+      setRetrySuccess(null);
+      const apiError = error as AxiosError<{ detail?: string }>;
+      if (apiError.response?.data?.detail) {
+        setRetryError(apiError.response.data.detail);
+        return;
+      }
+      if (error instanceof Error) {
+        setRetryError(error.message);
+        return;
+      }
+      setRetryError("Unable to start payment retry.");
+    },
+  });
 
   const handleDownloadInvoice = () => {
     if (!order) return;
@@ -113,6 +197,12 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
   const handleCancelOrder = () => {
     if (isCancellationBlocked || cancelOrderMutation.isPending) return;
     cancelOrderMutation.mutate();
+  };
+  const handleRetryPayment = () => {
+    if (!order || retryMutation.isPending) return;
+    setRetryError(null);
+    setRetrySuccess(null);
+    retryMutation.mutate();
   };
 
   return (
@@ -149,6 +239,16 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
           </div>
         </CardContent>
       </Card>
+      {order?.payment_status === "failed" ? (
+        <Alert variant="error">
+          <div>
+            <AlertTitle>Payment Failed</AlertTitle>
+            <AlertDescription>
+              Your previous payment attempt failed. You can retry payment for this order up to 3 times.
+            </AlertDescription>
+          </div>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="border-neutral-200 shadow-sm dark:border-neutral-800 lg:col-span-2">
@@ -189,6 +289,11 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
             <Button className="w-full" onClick={handleDownloadInvoice} disabled={!order}>
               Download Invoice
             </Button>
+            {order?.payment_status === "failed" ? (
+              <Button className="w-full" onClick={handleRetryPayment} disabled={retryMutation.isPending}>
+                {retryMutation.isPending ? "Starting Retry..." : "Retry Payment"}
+              </Button>
+            ) : null}
             <Button
               className="w-full"
               variant="secondary"
@@ -200,6 +305,8 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
             {isCancellationBlocked ? (
               <p className="text-xs text-neutral-500 dark:text-neutral-400">Cancellation is no longer available for this order.</p>
             ) : null}
+            {retryError ? <p className="text-xs text-rose-600 dark:text-rose-400">{retryError}</p> : null}
+            {retrySuccess ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{retrySuccess}</p> : null}
           </CardContent>
         </Card>
       </div>

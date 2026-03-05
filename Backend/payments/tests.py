@@ -114,7 +114,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(self.order.status, Order.Status.CONFIRMED)
         self.assertTrue(self.order.stock_deducted)
         self.assertEqual(self.product.stock_quantity, 3)
-        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.VERIFIED).count(), 1)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.PAYMENT_SUCCESS).count(), 1)
         mock_send_order_email.assert_called_once_with("payment_success", self.order)
         verified_at = payment.verified_at
         order_updated_at = self.order.updated_at
@@ -304,6 +304,7 @@ class PaymentAPITests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.FAILED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)
+        self.assertEqual(self.order.status, Order.Status.PAYMENT_FAILED)
 
         duplicate = self.client.post(
             "/api/v1/payments/webhook/",
@@ -481,7 +482,58 @@ class PaymentAPITests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.FAILED).count(), 1)
+        self.assertEqual(payment.events.filter(event_type=PaymentEvent.EventType.PAYMENT_FAILED).count(), 1)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PAYMENT_FAILED)
+
+    @patch("payments.views.urlopen")
+    def test_payment_retry_for_failed_order_creates_new_session(self, mock_urlopen):
+        mock_urlopen.return_value = MockHTTPResponse(
+            {"id": "order_retry_1", "amount": 99900, "currency": "INR", "status": "created"}
+        )
+        self.order.payment_status = Order.PaymentStatus.FAILED
+        self.order.status = Order.Status.PAYMENT_FAILED
+        self.order.save(update_fields=["payment_status", "status", "updated_at"])
+
+        response = self.client.post(f"/api/v1/payments/retry/{self.order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["retry_attempt"], 1)
+        payment = Payment.objects.get(id=response.data["payment_id"])
+        self.assertEqual(payment.order_id, self.order.id)
+        self.assertEqual(payment.razorpay_order_id, "order_retry_1")
+        self.assertEqual(
+            payment.events.filter(event_type=PaymentEvent.EventType.RETRY_ATTEMPT).count(),
+            1,
+        )
+
+    @patch("payments.views.urlopen")
+    def test_payment_retry_is_limited_to_three_attempts(self, mock_urlopen):
+        self.order.payment_status = Order.PaymentStatus.FAILED
+        self.order.status = Order.Status.PAYMENT_FAILED
+        self.order.save(update_fields=["payment_status", "status", "updated_at"])
+        for attempt in range(3):
+            mock_urlopen.return_value = MockHTTPResponse(
+                {"id": f"order_retry_{attempt}", "amount": 99900, "currency": "INR", "status": "created"}
+            )
+            response = self.client.post(f"/api/v1/payments/retry/{self.order.id}/")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        blocked = self.client.post(f"/api/v1/payments/retry/{self.order.id}/")
+        self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(blocked.data["detail"], "Maximum payment retry attempts reached.")
+
+    @patch("payments.views.urlopen")
+    def test_payment_retry_rejects_paid_order(self, mock_urlopen):
+        self.order.payment_status = Order.PaymentStatus.PAID
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["payment_status", "status", "updated_at"])
+
+        response = self.client.post(f"/api/v1/payments/retry/{self.order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["detail"], "Payment already completed for this order.")
+        self.assertEqual(mock_urlopen.call_count, 0)
 
     def test_payment_event_is_immutable(self):
         payment = Payment.objects.create(

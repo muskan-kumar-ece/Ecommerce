@@ -4,6 +4,7 @@ export const ORDER_STATUS_META: Record<string, { label: string; variant: BadgeVa
   pending: { label: "Pending", variant: "warning" },
   confirmed: { label: "Processing", variant: "info" },
   processing: { label: "Processing", variant: "info" },
+  payment_failed: { label: "Payment Failed", variant: "danger" },
   shipped: { label: "Shipped", variant: "info" },
   delivered: { label: "Delivered", variant: "success" },
   cancelled: { label: "Cancelled", variant: "danger" },
