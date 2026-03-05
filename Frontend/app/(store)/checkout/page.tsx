@@ -50,10 +50,17 @@ function CheckoutContent() {
       setIsPlacingOrder(true);
       setError(null);
 
-      // Convert cart items to the format expected by the API
-      const items = cartItems.map((item) => ({
-        product_id: item.id,
-        quantity: 1, // Each cart item represents 1 quantity in this simple cart
+      // Aggregate cart items by product ID and calculate quantities
+      const itemsMap = new Map<number, number>();
+      for (const item of cartItems) {
+        const currentQty = itemsMap.get(item.id) || 0;
+        itemsMap.set(item.id, currentQty + 1);
+      }
+
+      // Convert to API format
+      const items = Array.from(itemsMap.entries()).map(([product_id, quantity]) => ({
+        product_id,
+        quantity,
       }));
 
       // Call the createOrder API
@@ -133,15 +140,27 @@ function CheckoutContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3">
-              {cartItems.map((item) => (
-                <div key={item.cartItemId} className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{item.name}</p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">Quantity: 1</p>
+              {(() => {
+                // Group cart items by product and show quantity
+                const itemsMap = new Map<number, { name: string; price: string; quantity: number }>();
+                for (const item of cartItems) {
+                  const existing = itemsMap.get(item.id);
+                  if (existing) {
+                    existing.quantity += 1;
+                  } else {
+                    itemsMap.set(item.id, { name: item.name, price: item.price, quantity: 1 });
+                  }
+                }
+                return Array.from(itemsMap.values()).map((item, index) => (
+                  <div key={index} className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{item.name}</p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">Quantity: {item.quantity}</p>
+                    </div>
+                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{toCurrency(item.price)}</p>
                   </div>
-                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{toCurrency(item.price)}</p>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
             <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
               <div className="mb-4 flex items-center justify-between">
