@@ -9,7 +9,7 @@ from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Coupon, CouponUsage, Order
+from .models import Cart, Coupon, CouponUsage, Order, OrderItem
 from .views import OrderViewSet
 
 
@@ -121,6 +121,182 @@ class OrderAPITests(TestCase):
         self.assertEqual(Order.objects.get(id=first_response.data["id"]).idempotency_key, "order-key-1")
         self.assertEqual(first_response.data["id"], second_response.data["id"])
         self.assertEqual(Order.objects.filter(user=user, idempotency_key="order-key-1").count(), 1)
+
+
+class OrderCreateWithItemsAPITests(TestCase):
+    """Tests for the new create order with items endpoint."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="orderuser@example.com",
+            password="StrongPass123",
+            name="Order User",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        
+        # Create test products
+        self.category = Category.objects.create(name="Electronics")
+        self.product1 = Product.objects.create(
+            category=self.category,
+            name="Laptop",
+            description="Gaming laptop",
+            price=Decimal("50000.00"),
+            sku="LAP-001",
+            stock_quantity=10,
+        )
+        self.product2 = Product.objects.create(
+            category=self.category,
+            name="Mouse",
+            description="Wireless mouse",
+            price=Decimal("1500.00"),
+            sku="MSE-001",
+            stock_quantity=20,
+        )
+
+    def test_create_order_with_items(self):
+        """Test creating an order with multiple items."""
+        response = self.client.post(
+            "/api/v1/orders/create/",
+            {
+                "items": [
+                    {"product_id": self.product1.id, "quantity": 1},
+                    {"product_id": self.product2.id, "quantity": 2},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("id", response.data)
+        self.assertIn("items", response.data)
+        self.assertEqual(len(response.data["items"]), 2)
+        expected_total = str(self.product1.price * 1 + self.product2.price * 2)
+        self.assertEqual(response.data["total_amount"], expected_total)
+        self.assertEqual(response.data["status"], Order.Status.PENDING)
+        self.assertEqual(response.data["payment_status"], Order.PaymentStatus.PENDING)
+
+        # Verify order was created in database
+        order = Order.objects.get(id=response.data["id"])
+        self.assertEqual(order.user, self.user)
+        self.assertEqual(order.items.count(), 2)
+
+    def test_create_order_with_single_item(self):
+        """Test creating an order with a single item."""
+        response = self.client.post(
+            "/api/v1/orders/create/",
+            {
+                "items": [
+                    {"product_id": self.product1.id, "quantity": 2},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        expected_total = str(self.product1.price * 2)
+        self.assertEqual(response.data["total_amount"], expected_total)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["items"][0]["quantity"], 2)
+        self.assertEqual(response.data["items"][0]["price"], str(self.product1.price))
+
+    def test_create_order_requires_authentication(self):
+        """Test that creating an order requires authentication."""
+        client = APIClient()
+        response = client.post(
+            "/api/v1/orders/create/",
+            {
+                "items": [
+                    {"product_id": self.product1.id, "quantity": 1},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_order_requires_items(self):
+        """Test that items are required to create an order."""
+        response = self.client.post(
+            "/api/v1/orders/create/",
+            {"items": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("items", response.data)
+
+    def test_create_order_with_invalid_product(self):
+        """Test creating an order with a non-existent product."""
+        response = self.client.post(
+            "/api/v1/orders/create/",
+            {
+                "items": [
+                    {"product_id": 99999, "quantity": 1},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_order_with_inactive_product(self):
+        """Test creating an order with an inactive product."""
+        self.product1.is_active = False
+        self.product1.save()
+
+        response = self.client.post(
+            "/api/v1/orders/create/",
+            {
+                "items": [
+                    {"product_id": self.product1.id, "quantity": 1},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_my_orders_endpoint(self):
+        """Test the my-orders endpoint."""
+        # Create some orders
+        order1 = Order.objects.create(user=self.user, total_amount=Decimal("1000.00"))
+        order2 = Order.objects.create(user=self.user, total_amount=Decimal("2000.00"))
+        
+        # Create orders for another user
+        other_user = get_user_model().objects.create_user(
+            email="other@example.com",
+            password="StrongPass123",
+            name="Other User",
+        )
+        Order.objects.create(user=other_user, total_amount=Decimal("3000.00"))
+
+        response = self.client.get("/api/v1/orders/my-orders/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        order_ids = [order["id"] for order in response.data]
+        self.assertIn(order1.id, order_ids)
+        self.assertIn(order2.id, order_ids)
+
+    def test_my_orders_requires_authentication(self):
+        """Test that my-orders requires authentication."""
+        client = APIClient()
+        response = client.get("/api/v1/orders/my-orders/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_order_detail_includes_items(self):
+        """Test that order detail endpoint includes items."""
+        order = Order.objects.create(user=self.user, total_amount=Decimal("51500.00"))
+        OrderItem.objects.create(order=order, product=self.product1, quantity=1, price=self.product1.price)
+        OrderItem.objects.create(order=order, product=self.product2, quantity=1, price=self.product2.price)
+
+        response = self.client.get(f"/api/v1/orders/{order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("items", response.data)
+        self.assertEqual(len(response.data["items"]), 2)
 
 
 class CouponAPITests(TestCase):

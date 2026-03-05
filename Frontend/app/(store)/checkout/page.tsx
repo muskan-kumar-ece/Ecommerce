@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { useCart } from "@/components/providers/cart-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createOrder } from "@/lib/api/orders";
 
 const inrFormatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 const formatCurrencyNumber = (value: number) => inrFormatter.format(value);
@@ -20,6 +23,9 @@ const toCurrency = (price: string) => {
 
 function CheckoutContent() {
   const { cartItems, totalPrice } = useCart();
+  const router = useRouter();
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (cartItems.length === 0) {
     return (
@@ -38,6 +44,36 @@ function CheckoutContent() {
       </Card>
     );
   }
+
+  const handlePlaceOrder = async () => {
+    try {
+      setIsPlacingOrder(true);
+      setError(null);
+
+      // Aggregate cart items by product ID and calculate quantities
+      const itemsMap = new Map<number, number>();
+      for (const item of cartItems) {
+        const currentQty = itemsMap.get(item.id) || 0;
+        itemsMap.set(item.id, currentQty + 1);
+      }
+
+      // Convert to API format
+      const items = Array.from(itemsMap.entries()).map(([product_id, quantity]) => ({
+        product_id,
+        quantity,
+      }));
+
+      // Call the createOrder API
+      const order = await createOrder(items);
+
+      // Redirect to order success page
+      router.push(`/order-success?order=${order.id}`);
+    } catch (err) {
+      console.error("Failed to place order:", err);
+      setError("Failed to place order. Please try again.");
+      setIsPlacingOrder(false);
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-8">
@@ -104,20 +140,52 @@ function CheckoutContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3">
-              {cartItems.map((item) => (
-                <div key={item.cartItemId} className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-neutral-800 dark:text-neutral-100">{item.name}</p>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-300">{toCurrency(item.price)}</p>
-                </div>
-              ))}
+              {(() => {
+                // Group cart items by product and show quantity
+                const itemsMap = new Map<number, { name: string; price: string; quantity: number }>();
+                for (const item of cartItems) {
+                  const existing = itemsMap.get(item.id);
+                  if (existing) {
+                    existing.quantity += 1;
+                  } else {
+                    itemsMap.set(item.id, { name: item.name, price: item.price, quantity: 1 });
+                  }
+                }
+                return Array.from(itemsMap.entries()).map(([productId, item]) => {
+                  // Parse the price and calculate total for this line item
+                  const sanitized = item.price.replace(/[^0-9.]/g, "");
+                  const unitPrice = Number(sanitized) || 0;
+                  const lineTotal = unitPrice * item.quantity;
+                  
+                  return (
+                    <div key={productId} className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{item.name}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">Quantity: {item.quantity}</p>
+                      </div>
+                      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{formatCurrencyNumber(lineTotal)}</p>
+                    </div>
+                  );
+                });
+              })()}
             </div>
             <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm text-neutral-600 dark:text-neutral-300">Total</span>
                 <span className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrencyNumber(totalPrice)}</span>
               </div>
-              <Button type="button" fullWidth disabled>
-                Payment Integration Coming Soon
+              {error && (
+                <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                  {error}
+                </div>
+              )}
+              <Button 
+                type="button" 
+                fullWidth 
+                onClick={handlePlaceOrder}
+                disabled={isPlacingOrder}
+              >
+                {isPlacingOrder ? "Placing Order..." : "Place Order"}
               </Button>
             </div>
           </CardContent>

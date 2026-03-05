@@ -13,6 +13,8 @@ from .serializers import (
     CartItemSerializer,
     CartSerializer,
     CouponSerializer,
+    CreateOrderSerializer,
+    OrderDetailSerializer,
     OrderItemSerializer,
     OrderSerializer,
     ShippingAddressSerializer,
@@ -45,6 +47,12 @@ class OrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Order.objects.filter(user=self.request.user).select_related("shipping_address").prefetch_related("items")
 
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        if self.action in ['retrieve', 'list']:
+            return OrderDetailSerializer
+        return self.serializer_class
+
     def perform_create(self, serializer):
         idempotency_key = self.request.headers.get("Idempotency-Key")
         if idempotency_key:
@@ -67,6 +75,43 @@ class OrderViewSet(viewsets.ModelViewSet):
                 raise
             return
         serializer.save(user=self.request.user)
+
+    @decorators.action(detail=False, methods=["post"], url_path="create")
+    @transaction.atomic
+    def create_order(self, request):
+        """
+        Create an order with items.
+        
+        Request body:
+        {
+            "items": [
+                {"product_id": 1, "quantity": 2},
+                {"product_id": 2, "quantity": 1}
+            ]
+        }
+        """
+        serializer = CreateOrderSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        
+        # Return the created order with items
+        output_serializer = OrderDetailSerializer(order, context={"request": request})
+        return Response(output_serializer.data, status=201)
+
+    @decorators.action(detail=False, methods=["get"], url_path="my-orders")
+    def my_orders(self, request):
+        """
+        Get all orders for the authenticated user.
+        This is an alias for the list action with a more descriptive endpoint name.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = OrderDetailSerializer(page, many=True, context={"request": request})
+            return self.get_paginated_response(serializer.data)
+
+        serializer = OrderDetailSerializer(queryset, many=True, context={"request": request})
+        return Response(serializer.data)
 
     @decorators.action(detail=True, methods=["post"], url_path="apply-coupon")
     @transaction.atomic
