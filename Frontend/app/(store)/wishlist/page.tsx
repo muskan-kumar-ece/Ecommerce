@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -15,6 +16,7 @@ export default function WishlistPage() {
   const { accessToken } = useAuth();
   const queryClient = useQueryClient();
   const { addToCart } = useCart();
+  const [removingProductId, setRemovingProductId] = useState<number | null>(null);
 
   const { data: wishlist = [], isLoading, isError } = useQuery({
     queryKey: ["wishlist"],
@@ -35,7 +37,21 @@ export default function WishlistPage() {
       name: item.product_details?.name ?? item.product_name ?? `Product #${item.product}`,
       price: item.product_details?.price ?? item.product_price ?? "0",
     });
-    await removeMutation.mutateAsync(item.product);
+    setRemovingProductId(item.product);
+    try {
+      await removeMutation.mutateAsync(item.product);
+    } finally {
+      setRemovingProductId(null);
+    }
+  };
+
+  const handleRemove = async (productId: number) => {
+    setRemovingProductId(productId);
+    try {
+      await removeMutation.mutateAsync(productId);
+    } finally {
+      setRemovingProductId(null);
+    }
   };
 
   if (!accessToken) {
@@ -76,11 +92,11 @@ export default function WishlistPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {wishlist.map((item) => (
           <WishlistCard
-            key={`${item.id}-${item.product}`}
+            key={item.id}
             item={item}
-            onRemove={(productId) => removeMutation.mutate(productId)}
+            onRemove={handleRemove}
             onMoveToCart={handleMoveToCart}
-            isRemoving={removeMutation.isPending}
+            isRemoving={removingProductId === item.product}
           />
         ))}
       </div>
