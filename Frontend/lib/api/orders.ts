@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api/client";
-import type { Order, OrderItem } from "@/lib/api/types";
+import type { AdminOrderDetail, AdminOrderListItem, Order, OrderItem } from "@/lib/api/types";
 
 export async function createOrder(items: { product_id: number; quantity: number }[]) {
   const { data } = await apiClient.post<Order>(
@@ -24,7 +24,38 @@ export async function fetchOrders() {
   return data;
 }
 
+export async function cancelOrder(id: string) {
+  const { data } = await apiClient.post<{ detail: string }>(`/api/v1/orders/${id}/cancel/`);
+  return data;
+}
+
 export async function fetchOrderItems() {
   const { data } = await apiClient.get<OrderItem[]>("/api/v1/orders/items/");
+  return data;
+}
+
+type AdminOrdersFilters = {
+  status?: string;
+  date?: string;
+  search?: string;
+};
+
+export async function fetchAdminOrders(filters: AdminOrdersFilters) {
+  const { data } = await apiClient.get<AdminOrderListItem[]>("/admin/orders/", {
+    params: filters,
+  });
+  return data;
+}
+
+export async function fetchAdminOrder(id: string) {
+  const { data } = await apiClient.get<AdminOrderDetail>(`/admin/orders/${id}/`);
+  return data;
+}
+
+export async function updateAdminOrderStatus(
+  id: string,
+  payload: { status: string; payment_status?: string; note?: string },
+) {
+  const { data } = await apiClient.post<AdminOrderDetail>(`/admin/orders/${id}/status/`, payload);
   return data;
 }

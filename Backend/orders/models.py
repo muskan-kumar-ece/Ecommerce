@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from products.models import Product
 
@@ -56,6 +57,7 @@ class Order(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         CONFIRMED = "confirmed", "Confirmed"
+        PAYMENT_FAILED = "payment_failed", "Payment Failed"
         SHIPPED = "shipped", "Shipped"
         DELIVERED = "delivered", "Delivered"
         CANCELLED = "cancelled", "Cancelled"
@@ -93,6 +95,9 @@ class Order(models.Model):
     idempotency_key = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     applied_coupon = models.ForeignKey("Coupon", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders")
     tracking_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    shipping_provider = models.CharField(max_length=100, blank=True, null=True)
+    shipped_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -113,6 +118,94 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order {self.pk} - {self.user.email}"
+
+
+class OrderEvent(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="events")
+    previous_status = models.CharField(max_length=20, choices=Order.Status.choices, blank=True)
+    new_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    previous_payment_status = models.CharField(max_length=20, choices=Order.PaymentStatus.choices, blank=True)
+    new_payment_status = models.CharField(max_length=20, choices=Order.PaymentStatus.choices)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="order_events",
+        null=True,
+        blank=True,
+    )
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("created_at",)
+        indexes = [
+            models.Index(fields=["order", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id}: {self.previous_status} -> {self.new_status}"
+
+
+class EmailEvent(models.Model):
+    class EmailType(models.TextChoices):
+        ORDER_CONFIRMED = "order_confirmed", "Order Confirmed"
+        PAYMENT_SUCCESS = "payment_success", "Payment Success"
+        ORDER_SHIPPED = "order_shipped", "Order Shipped"
+        ORDER_DELIVERED = "order_delivered", "Order Delivered"
+        ORDER_CANCELLED = "order_cancelled", "Order Cancelled"
+        REFUND_PROCESSED = "refund_processed", "Refund Processed"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="email_events")
+    email_type = models.CharField(max_length=40, choices=EmailType.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "email_type"],
+                name="unique_order_email_type_event",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["order", "email_type"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id} email {self.email_type}: {self.status}"
+
+
+class ShippingEvent(models.Model):
+    class EventType(models.TextChoices):
+        CREATED = "created", "Created"
+        PICKED_UP = "picked_up", "Picked Up"
+        IN_TRANSIT = "in_transit", "In Transit"
+        OUT_FOR_DELIVERY = "out_for_delivery", "Out for Delivery"
+        DELIVERED = "delivered", "Delivered"
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="shipping_events")
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    location = models.CharField(max_length=255, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("timestamp", "created_at")
+        indexes = [
+            models.Index(fields=["order", "timestamp"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id} shipping {self.event_type}"
 
 
 class OrderItem(models.Model):

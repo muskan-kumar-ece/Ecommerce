@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchOrderItems, fetchOrders } from "@/lib/api/orders";
+import { fetchMyOrders } from "@/lib/api/orders";
+import { ORDER_STATUS_META } from "@/lib/order-status";
 import { formatOrderNumber } from "@/lib/order-utils";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
@@ -27,25 +28,19 @@ const toNumber = (value: string) => {
 };
 
 const getStatusMeta = (status: string) => {
-  if (status === "delivered") return { label: "Delivered", variant: "success" as const };
-  if (status === "shipped") return { label: "Shipped", variant: "info" as const };
-  return { label: "Processing", variant: "warning" as const };
+  return ORDER_STATUS_META[status] ?? { label: status, variant: "default" as const };
 };
 
 export default function OrdersPage() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["orders", "with-item-counts"],
+    queryKey: ["my-orders"],
     queryFn: async () => {
-      const [orders, orderItems] = await Promise.all([fetchOrders(), fetchOrderItems()]);
-      const itemCountByOrder = orderItems.reduce<Record<number, number>>((counts, item) => {
-        counts[item.order] = (counts[item.order] ?? 0) + item.quantity;
-        return counts;
-      }, {});
+      const orders = await fetchMyOrders();
 
       return orders.map((order) => {
         return {
           ...order,
-          itemCount: itemCountByOrder[order.id] ?? 0,
+          itemCount: order.items?.reduce((total, item) => total + item.quantity, 0) ?? 0,
           orderNumber: formatOrderNumber(order.id, order.tracking_id),
           statusMeta: getStatusMeta(order.status),
         };
@@ -123,10 +118,7 @@ export default function OrdersPage() {
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button asChild>
-                    <Link href={`/account/orders/${order.id}`}>View Order Details</Link>
-                  </Button>
-                  <Button asChild variant="secondary">
-                    <Link href={`/account/orders/${order.id}/track`}>Track Order</Link>
+                    <Link href={`/account/orders/${order.id}`}>View Details</Link>
                   </Button>
                 </div>
               </CardContent>

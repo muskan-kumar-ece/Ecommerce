@@ -61,6 +61,9 @@ class PaymentEvent(models.Model):
         DUPLICATE = "duplicate", "Duplicate"
         REFUNDED = "refunded", "Refunded"
         REPLAY = "replay", "Replay"
+        RETRY_ATTEMPT = "retry_attempt", "Retry Attempt"
+        PAYMENT_FAILED = "payment_failed", "Payment Failed"
+        PAYMENT_SUCCESS = "payment_success", "Payment Success"
 
     payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField(max_length=30, choices=EventType.choices)

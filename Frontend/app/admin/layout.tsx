@@ -9,7 +9,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <nav className="space-y-2 text-sm text-slate-600">
             <Link href="/admin">Dashboard</Link>
             <Link href="/admin/analytics">Analytics</Link>
-            <div className="block">Orders</div>
+            <Link href="/admin/orders">Orders</Link>
             <div className="block">Products</div>
             <div className="block">Payments</div>
           </nav>

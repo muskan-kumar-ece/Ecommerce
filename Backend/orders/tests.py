@@ -1,15 +1,19 @@
 from decimal import Decimal
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Coupon, CouponUsage, Order, OrderItem
+from .models import Cart, Coupon, CouponUsage, EmailEvent, Order, OrderEvent, OrderItem, ShippingAddress, ShippingEvent
+from .notifications import send_order_email
 from .views import OrderViewSet
 
 
@@ -121,6 +125,41 @@ class OrderAPITests(TestCase):
         self.assertEqual(Order.objects.get(id=first_response.data["id"]).idempotency_key, "order-key-1")
         self.assertEqual(first_response.data["id"], second_response.data["id"])
         self.assertEqual(Order.objects.filter(user=user, idempotency_key="order-key-1").count(), 1)
+
+    @patch("orders.views.send_order_email")
+    def test_customer_can_cancel_non_shipped_order(self, mock_send_order_email):
+        user = get_user_model().objects.create_user(
+            email="canceluser@example.com",
+            password="StrongPass123",
+            name="Cancel User",
+        )
+        order = Order.objects.create(user=user, total_amount=Decimal("499.00"), status=Order.Status.PENDING)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(f"/api/v1/orders/{order.id}/cancel/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertTrue(order.events.filter(new_status=Order.Status.CANCELLED).exists())
+        mock_send_order_email.assert_called_once_with("order_cancelled", order)
+
+    def test_customer_cannot_cancel_shipped_order(self):
+        user = get_user_model().objects.create_user(
+            email="shippeduser@example.com",
+            password="StrongPass123",
+            name="Shipped User",
+        )
+        order = Order.objects.create(user=user, total_amount=Decimal("499.00"), status=Order.Status.SHIPPED)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(f"/api/v1/orders/{order.id}/cancel/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.SHIPPED)
 
 
 class OrderCreateWithItemsAPITests(TestCase):
@@ -298,6 +337,33 @@ class OrderCreateWithItemsAPITests(TestCase):
         self.assertIn("items", response.data)
         self.assertEqual(len(response.data["items"]), 2)
 
+    def test_order_detail_includes_shipping_timeline_fields(self):
+        order = Order.objects.create(
+            user=self.user,
+            total_amount=Decimal("1000.00"),
+            tracking_id="TRK-123",
+            shipping_provider="BlueDart",
+            shipped_at=timezone.now() - timedelta(days=1),
+            delivered_at=timezone.now(),
+            status=Order.Status.DELIVERED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        ShippingEvent.objects.create(
+            order=order,
+            event_type=ShippingEvent.EventType.IN_TRANSIT,
+            location="Delhi Hub",
+        )
+
+        response = self.client.get(f"/api/v1/orders/{order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tracking_id"], "TRK-123")
+        self.assertEqual(response.data["shipping_provider"], "BlueDart")
+        self.assertIn("shipped_at", response.data)
+        self.assertIn("delivered_at", response.data)
+        self.assertIn("shipping_events", response.data)
+        self.assertEqual(len(response.data["shipping_events"]), 1)
+
 
 class CouponAPITests(TestCase):
     def setUp(self):
@@ -433,3 +499,214 @@ class CouponAPITests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not eligible", str(response.data))
+
+
+class AdminOrderManagementAPITests(TestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin@example.com",
+            password="StrongPass123",
+            name="Admin User",
+            is_staff=True,
+        )
+        self.customer_user = get_user_model().objects.create_user(
+            email="customer@example.com",
+            password="StrongPass123",
+            name="Customer User",
+        )
+        self.client = APIClient()
+        self.category = Category.objects.create(name="Devices")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Keyboard",
+            description="Mechanical keyboard",
+            price=Decimal("3500.00"),
+            sku="KBD-001",
+            stock_quantity=15,
+        )
+        self.order = Order.objects.create(
+            user=self.customer_user,
+            total_amount=Decimal("7000.00"),
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        OrderItem.objects.create(order=self.order, product=self.product, quantity=2, price=self.product.price)
+        ShippingAddress.objects.create(
+            order=self.order,
+            full_name="Customer User",
+            phone_number="9999999999",
+            address_line_1="12 Main Street",
+            city="Bengaluru",
+            state="Karnataka",
+            postal_code="560001",
+            country="India",
+        )
+
+    def test_non_admin_cannot_access_admin_order_endpoints(self):
+        self.client.force_authenticate(user=self.customer_user)
+
+        response = self.client.get("/admin/orders/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_list_and_filter_orders(self):
+        second_user = get_user_model().objects.create_user(
+            email="another@example.com",
+            password="StrongPass123",
+            name="Another User",
+        )
+        Order.objects.create(
+            user=second_user,
+            total_amount=Decimal("1100.00"),
+            status=Order.Status.CANCELLED,
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        by_status = self.client.get("/admin/orders/", {"status": "cancelled"})
+        by_search = self.client.get("/admin/orders/", {"search": "customer@example.com"})
+
+        self.assertEqual(by_status.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(by_status.data), 1)
+        self.assertEqual(by_status.data[0]["status"], Order.Status.CANCELLED)
+        self.assertEqual(by_search.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(by_search.data), 1)
+        self.assertEqual(by_search.data[0]["id"], self.order.id)
+
+    def test_admin_can_view_order_detail(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get(f"/admin/orders/{self.order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user_email"], self.customer_user.email)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["shipping_address"]["city"], "Bengaluru")
+        self.assertIn("timeline", response.data)
+
+    def test_admin_status_update_creates_order_event(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": "processing", "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        event = OrderEvent.objects.get(order=self.order)
+        self.assertEqual(event.previous_status, Order.Status.PENDING)
+        self.assertEqual(event.new_status, Order.Status.CONFIRMED)
+        self.assertEqual(event.changed_by, self.admin_user)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_ship_endpoint_sets_tracking_and_creates_shipping_event(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["status", "updated_at"])
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/ship/",
+            {"shipping_provider": "BlueDart", "location": "Bengaluru Hub"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.SHIPPED)
+        self.assertEqual(self.order.shipping_provider, "BlueDart")
+        self.assertTrue(self.order.tracking_id)
+        self.assertIsNotNone(self.order.shipped_at)
+        shipping_event = ShippingEvent.objects.get(order=self.order)
+        self.assertEqual(shipping_event.event_type, ShippingEvent.EventType.CREATED)
+        self.assertEqual(shipping_event.location, "Bengaluru Hub")
+        mock_send_order_email.assert_called_once_with("order_shipped", self.order)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_deliver_endpoint_marks_order_delivered_and_creates_event(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+        self.order.status = Order.Status.SHIPPED
+        self.order.shipped_at = timezone.now() - timedelta(hours=3)
+        self.order.tracking_id = "TRK-EXISTING"
+        self.order.shipping_provider = "BlueDart"
+        self.order.save(update_fields=["status", "shipped_at", "tracking_id", "shipping_provider", "updated_at"])
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/deliver/",
+            {"location": "Customer Address"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.DELIVERED)
+        self.assertIsNotNone(self.order.delivered_at)
+        shipping_event = ShippingEvent.objects.get(order=self.order, event_type=ShippingEvent.EventType.DELIVERED)
+        self.assertEqual(shipping_event.location, "Customer Address")
+        mock_send_order_email.assert_called_once_with("order_delivered", self.order)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_status_update_triggers_shipped_and_delivered_emails(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+
+        shipped_response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": Order.Status.SHIPPED, "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+        delivered_response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": Order.Status.DELIVERED, "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+
+        self.assertEqual(shipped_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(delivered_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_send_order_email.call_count, 2)
+        mock_send_order_email.assert_any_call("order_shipped", self.order)
+        mock_send_order_email.assert_any_call("order_delivered", self.order)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="no-reply@example.com",
+    SUPPORT_EMAIL="support@example.com",
+)
+class OrderNotificationServiceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="notify@example.com",
+            password="StrongPass123",
+            name="Notify User",
+        )
+        self.category = Category.objects.create(name="NotifyCategory")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Notify Product",
+            description="Notification test product",
+            price=Decimal("2500.00"),
+            sku="NTF-001",
+            stock_quantity=50,
+        )
+        self.order = Order.objects.create(
+            user=self.user,
+            total_amount=Decimal("5000.00"),
+            status=Order.Status.CONFIRMED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        OrderItem.objects.create(order=self.order, product=self.product, quantity=2, price=self.product.price)
+
+    def test_send_order_email_sends_once_and_persists_sent_event(self):
+        first = send_order_email("payment_success", self.order)
+        second = send_order_email("payment_success", self.order)
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(len(mail.outbox), 1)
+        sent_event = EmailEvent.objects.get(order=self.order, email_type=EmailEvent.EmailType.PAYMENT_SUCCESS)
+        self.assertEqual(sent_event.status, EmailEvent.Status.SENT)
+        self.assertIsNotNone(sent_event.sent_at)
+        self.assertIn(f"Order ID: {self.order.id}", mail.outbox[0].body)
+        self.assertIn("Notify Product", mail.outbox[0].body)
+        self.assertIn("support@example.com", mail.outbox[0].body)

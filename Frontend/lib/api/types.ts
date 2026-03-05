@@ -68,9 +68,20 @@ export type Order = {
   status: string;
   payment_status: string;
   tracking_id: string | null;
+  shipping_provider?: string | null;
+  shipped_at?: string | null;
+  delivered_at?: string | null;
+  shipping_events?: ShippingEvent[];
   items?: OrderItem[];
   created_at: string;
   updated_at: string;
+};
+
+export type ShippingEvent = {
+  id: number;
+  event_type: "created" | "picked_up" | "in_transit" | "out_for_delivery" | "delivered";
+  location: string;
+  timestamp: string;
 };
 
 export type OrderItem = {
@@ -92,6 +103,62 @@ export type AnalyticsSummary = {
   today_revenue: string;
   today_orders: number;
   last_7_days_revenue: string;
+};
+
+export type AdminOrderListItem = {
+  id: number;
+  user_email: string;
+  total_amount: string;
+  payment_status: string;
+  status: string;
+  created_at: string;
+};
+
+export type AdminOrderEvent = {
+  id: number;
+  previous_status: string;
+  new_status: string;
+  previous_payment_status: string;
+  new_payment_status: string;
+  note: string;
+  changed_by_email?: string;
+  changed_by_name?: string;
+  created_at: string;
+};
+
+export type AdminShippingAddress = {
+  full_name: string;
+  phone_number: string;
+  address_line_1: string;
+  address_line_2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+};
+
+export type AdminOrderDetail = {
+  id: number;
+  user: string;
+  user_email: string;
+  user_name: string;
+  total_amount: string;
+  gross_amount?: string | null;
+  coupon_discount?: string;
+  status: string;
+  payment_status: string;
+  tracking_id: string | null;
+  created_at: string;
+  updated_at: string;
+  items: Array<{
+    id: number;
+    product: number;
+    product_name: string;
+    quantity: number;
+    price: string;
+  }>;
+  shipping_address?: AdminShippingAddress | null;
+  timeline: AdminOrderEvent[];
 };
 
 export type ReferralSummary = {
