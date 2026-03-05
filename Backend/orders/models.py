@@ -115,6 +115,32 @@ class Order(models.Model):
         return f"Order {self.pk} - {self.user.email}"
 
 
+class OrderEvent(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="events")
+    previous_status = models.CharField(max_length=20, choices=Order.Status.choices, blank=True)
+    new_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    previous_payment_status = models.CharField(max_length=20, choices=Order.PaymentStatus.choices, blank=True)
+    new_payment_status = models.CharField(max_length=20, choices=Order.PaymentStatus.choices)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="order_events",
+        null=True,
+        blank=True,
+    )
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("created_at",)
+        indexes = [
+            models.Index(fields=["order", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id}: {self.previous_status} -> {self.new_status}"
+
+
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="order_items")

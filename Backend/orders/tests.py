@@ -9,7 +9,7 @@ from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Coupon, CouponUsage, Order, OrderItem
+from .models import Cart, Coupon, CouponUsage, Order, OrderEvent, OrderItem, ShippingAddress
 from .views import OrderViewSet
 
 
@@ -433,3 +433,103 @@ class CouponAPITests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not eligible", str(response.data))
+
+
+class AdminOrderManagementAPITests(TestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin@example.com",
+            password="StrongPass123",
+            name="Admin User",
+            is_staff=True,
+        )
+        self.customer_user = get_user_model().objects.create_user(
+            email="customer@example.com",
+            password="StrongPass123",
+            name="Customer User",
+        )
+        self.client = APIClient()
+        self.category = Category.objects.create(name="Devices")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Keyboard",
+            description="Mechanical keyboard",
+            price=Decimal("3500.00"),
+            sku="KBD-001",
+            stock_quantity=15,
+        )
+        self.order = Order.objects.create(
+            user=self.customer_user,
+            total_amount=Decimal("7000.00"),
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        OrderItem.objects.create(order=self.order, product=self.product, quantity=2, price=self.product.price)
+        ShippingAddress.objects.create(
+            order=self.order,
+            full_name="Customer User",
+            phone_number="9999999999",
+            address_line_1="12 Main Street",
+            city="Bengaluru",
+            state="Karnataka",
+            postal_code="560001",
+            country="India",
+        )
+
+    def test_non_admin_cannot_access_admin_order_endpoints(self):
+        self.client.force_authenticate(user=self.customer_user)
+
+        response = self.client.get("/admin/orders/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_list_and_filter_orders(self):
+        second_user = get_user_model().objects.create_user(
+            email="another@example.com",
+            password="StrongPass123",
+            name="Another User",
+        )
+        Order.objects.create(
+            user=second_user,
+            total_amount=Decimal("1100.00"),
+            status=Order.Status.CANCELLED,
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        by_status = self.client.get("/admin/orders/", {"status": "cancelled"})
+        by_search = self.client.get("/admin/orders/", {"search": "customer@example.com"})
+
+        self.assertEqual(by_status.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(by_status.data), 1)
+        self.assertEqual(by_status.data[0]["status"], Order.Status.CANCELLED)
+        self.assertEqual(by_search.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(by_search.data), 1)
+        self.assertEqual(by_search.data[0]["id"], self.order.id)
+
+    def test_admin_can_view_order_detail(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get(f"/admin/orders/{self.order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user_email"], self.customer_user.email)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["shipping_address"]["city"], "Bengaluru")
+        self.assertIn("timeline", response.data)
+
+    def test_admin_status_update_creates_order_event(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/status/",
+            {"status": "processing", "payment_status": Order.PaymentStatus.PAID},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.CONFIRMED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        event = OrderEvent.objects.get(order=self.order)
+        self.assertEqual(event.previous_status, Order.Status.PENDING)
+        self.assertEqual(event.new_status, Order.Status.CONFIRMED)
+        self.assertEqual(event.changed_by, self.admin_user)
