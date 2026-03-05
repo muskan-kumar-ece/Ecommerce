@@ -151,15 +151,22 @@ function CheckoutContent() {
                     itemsMap.set(item.id, { name: item.name, price: item.price, quantity: 1 });
                   }
                 }
-                return Array.from(itemsMap.values()).map((item, index) => (
-                  <div key={index} className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{item.name}</p>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400">Quantity: {item.quantity}</p>
+                return Array.from(itemsMap.entries()).map(([productId, item]) => {
+                  // Parse the price and calculate total for this line item
+                  const sanitized = item.price.replace(/[^0-9.]/g, "");
+                  const unitPrice = Number(sanitized) || 0;
+                  const lineTotal = unitPrice * item.quantity;
+                  
+                  return (
+                    <div key={productId} className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{item.name}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">Quantity: {item.quantity}</p>
+                      </div>
+                      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{formatCurrencyNumber(lineTotal)}</p>
                     </div>
-                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{toCurrency(item.price)}</p>
-                  </div>
-                ));
+                  );
+                });
               })()}
             </div>
             <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
