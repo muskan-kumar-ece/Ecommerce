@@ -94,7 +94,7 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
       `Order ID: ${order.id}`,
       `Created: ${dateTimeFormatter.format(new Date(order.created_at))}`,
       `Payment Status: ${PAYMENT_STATUS_META[order.payment_status]?.label ?? order.payment_status}`,
-      `Order Total: ${order.total_amount}`,
+      `Order Total: ${currencyFormatter.format(toNumber(order.total_amount))}`,
       `Tracking ID: ${order.tracking_id ?? "Pending assignment"}`,
       "",
       "Items:",
@@ -198,7 +198,7 @@ export default function OrderDetailsPage({ params }: OrderDetailsPageProps) {
               {cancelOrderMutation.isPending ? "Cancelling..." : "Cancel Order"}
             </Button>
             {isCancellationBlocked ? (
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">Cancellation is unavailable once an order is shipped.</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Cancellation is no longer available for this order.</p>
             ) : null}
           </CardContent>
         </Card>

@@ -189,11 +189,8 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         if not order:
             return Response({"detail": "Order not found."}, status=404)
-        if order.status in {Order.Status.SHIPPED, Order.Status.DELIVERED}:
-            return Response({"detail": "Shipped or delivered orders cannot be cancelled."}, status=400)
-        if order.status == Order.Status.CANCELLED:
-            return Response({"detail": "Order is already cancelled."}, status=200)
-
+        if order.status in {Order.Status.SHIPPED, Order.Status.DELIVERED, Order.Status.CANCELLED, Order.Status.REFUNDED}:
+            return Response({"detail": "This order can no longer be cancelled."}, status=400)
         previous_status = order.status
         previous_payment_status = order.payment_status
         order.status = Order.Status.CANCELLED
