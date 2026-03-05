@@ -8,6 +8,7 @@ from rest_framework import permissions, viewsets
 from rest_framework.response import Response
 
 from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
+from .notifications import send_order_email
 from .serializers import (
     ApplyCouponSerializer,
     CartItemSerializer,
@@ -177,6 +178,36 @@ class OrderViewSet(viewsets.ModelViewSet):
             },
             status=200,
         )
+
+    @decorators.action(detail=True, methods=["post"], url_path="cancel")
+    @transaction.atomic
+    def cancel_order(self, request, pk=None):
+        order = (
+            Order.objects.select_for_update()
+            .filter(id=pk, user=request.user)
+            .first()
+        )
+        if not order:
+            return Response({"detail": "Order not found."}, status=404)
+        if order.status in {Order.Status.SHIPPED, Order.Status.DELIVERED}:
+            return Response({"detail": "Shipped or delivered orders cannot be cancelled."}, status=400)
+        if order.status == Order.Status.CANCELLED:
+            return Response({"detail": "Order is already cancelled."}, status=200)
+
+        previous_status = order.status
+        previous_payment_status = order.payment_status
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=["status", "updated_at"])
+        order.events.create(
+            previous_status=previous_status,
+            new_status=Order.Status.CANCELLED,
+            previous_payment_status=previous_payment_status,
+            new_payment_status=order.payment_status,
+            changed_by=request.user,
+            note="Cancelled by customer",
+        )
+        send_order_email("order_cancelled", order)
+        return Response({"detail": "Order cancelled successfully."}, status=200)
 
 
 class OrderItemViewSet(viewsets.ModelViewSet):

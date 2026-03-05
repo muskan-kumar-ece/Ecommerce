@@ -126,6 +126,41 @@ class OrderAPITests(TestCase):
         self.assertEqual(first_response.data["id"], second_response.data["id"])
         self.assertEqual(Order.objects.filter(user=user, idempotency_key="order-key-1").count(), 1)
 
+    @patch("orders.views.send_order_email")
+    def test_customer_can_cancel_non_shipped_order(self, mock_send_order_email):
+        user = get_user_model().objects.create_user(
+            email="canceluser@example.com",
+            password="StrongPass123",
+            name="Cancel User",
+        )
+        order = Order.objects.create(user=user, total_amount=Decimal("499.00"), status=Order.Status.PENDING)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(f"/api/v1/orders/{order.id}/cancel/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertTrue(order.events.filter(new_status=Order.Status.CANCELLED).exists())
+        mock_send_order_email.assert_called_once_with("order_cancelled", order)
+
+    def test_customer_cannot_cancel_shipped_order(self):
+        user = get_user_model().objects.create_user(
+            email="shippeduser@example.com",
+            password="StrongPass123",
+            name="Shipped User",
+        )
+        order = Order.objects.create(user=user, total_amount=Decimal("499.00"), status=Order.Status.SHIPPED)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(f"/api/v1/orders/{order.id}/cancel/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.SHIPPED)
+
 
 class OrderCreateWithItemsAPITests(TestCase):
     """Tests for the new create order with items endpoint."""

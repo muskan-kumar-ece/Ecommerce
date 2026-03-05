@@ -24,6 +24,11 @@ export async function fetchOrders() {
   return data;
 }
 
+export async function cancelOrder(id: string) {
+  const { data } = await apiClient.post<{ detail: string }>(`/api/v1/orders/${id}/cancel/`);
+  return data;
+}
+
 export async function fetchOrderItems() {
   const { data } = await apiClient.get<OrderItem[]>("/api/v1/orders/items/");
   return data;
