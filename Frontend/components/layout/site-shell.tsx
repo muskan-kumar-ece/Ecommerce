@@ -10,6 +10,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           </Link>
           <nav className="flex items-center gap-5 text-sm text-neutral-600 dark:text-neutral-300">
             <Link href="/">Products</Link>
+            <Link href="/wishlist">Wishlist</Link>
             <Link href="/cart">Cart</Link>
             <Link href="/checkout">Checkout</Link>
             <Link href="/referral">Referral</Link>
