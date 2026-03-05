@@ -62,9 +62,13 @@ export type Order = {
   id: number;
   user: string;
   total_amount: string;
+  gross_amount?: string | null;
+  coupon_discount?: string;
+  applied_coupon?: number | null;
   status: string;
   payment_status: string;
-  tracking_id: string;
+  tracking_id: string | null;
+  items?: OrderItem[];
   created_at: string;
   updated_at: string;
 };
