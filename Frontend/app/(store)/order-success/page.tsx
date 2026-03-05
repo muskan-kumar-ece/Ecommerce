@@ -54,14 +54,14 @@ export default function OrderSuccessPage({ searchParams }: OrderSuccessPageProps
 
           <div className="border-t border-neutral-200 pt-6 dark:border-neutral-800">
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Button asChild size="lg" className="w-full sm:w-auto hover:-translate-y-0.5">
+              <Button asChild size="lg" className="w-full transition-transform hover:-translate-y-0.5 sm:w-auto">
                 <Link href="/">Continue Shopping</Link>
               </Button>
               <Button
                 asChild
                 size="lg"
                 variant="secondary"
-                className="w-full sm:w-auto hover:-translate-y-0.5"
+                className="w-full transition-transform hover:-translate-y-0.5 sm:w-auto"
               >
                 <Link href="/account/orders">View Orders</Link>
               </Button>
