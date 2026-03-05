@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAdminOrder, updateAdminOrderStatus } from "@/lib/api/orders";
+import { ORDER_STATUS_META, PAYMENT_STATUS_META } from "@/lib/order-status";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -23,16 +24,6 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-IN", {
   hour: "2-digit",
   minute: "2-digit",
 });
-
-const statusBadgeMap: Record<string, { label: string; variant: "default" | "success" | "warning" | "danger" | "info" }> = {
-  pending: { label: "Pending", variant: "warning" },
-  confirmed: { label: "Processing", variant: "info" },
-  shipped: { label: "Shipped", variant: "info" },
-  delivered: { label: "Delivered", variant: "success" },
-  cancelled: { label: "Cancelled", variant: "danger" },
-  refunded: { label: "Refunded", variant: "default" },
-  paid: { label: "Paid", variant: "success" },
-};
 
 export default function AdminOrderDetailPage() {
   const params = useParams<{ id: string }>();
@@ -114,8 +105,8 @@ export default function AdminOrderDetailPage() {
               <CardContent className="space-y-2 text-sm text-slate-700">
                 <p className="flex items-center gap-2">
                   <span className="font-medium text-slate-900">Payment Status:</span>
-                  <Badge variant={statusBadgeMap[data.payment_status]?.variant ?? "default"}>
-                    {statusBadgeMap[data.payment_status]?.label ?? data.payment_status}
+                  <Badge variant={PAYMENT_STATUS_META[data.payment_status]?.variant ?? "default"}>
+                    {PAYMENT_STATUS_META[data.payment_status]?.label ?? data.payment_status}
                   </Badge>
                 </p>
                 <p>
@@ -124,7 +115,7 @@ export default function AdminOrderDetailPage() {
                 </p>
                 <p>
                   <span className="font-medium text-slate-900">Order Status:</span>{" "}
-                  {statusBadgeMap[data.status]?.label ?? data.status}
+                  {ORDER_STATUS_META[data.status]?.label ?? data.status}
                 </p>
               </CardContent>
             </Card>

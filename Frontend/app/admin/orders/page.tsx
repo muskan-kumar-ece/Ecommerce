@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAdminOrders } from "@/lib/api/orders";
+import { ORDER_STATUS_META, PAYMENT_STATUS_META } from "@/lib/order-status";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -21,23 +22,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   month: "short",
   year: "numeric",
 });
-
-const orderStatusMeta: Record<string, { label: string; variant: "default" | "success" | "warning" | "danger" | "info" }> = {
-  pending: { label: "Pending", variant: "warning" },
-  confirmed: { label: "Processing", variant: "info" },
-  processing: { label: "Processing", variant: "info" },
-  shipped: { label: "Shipped", variant: "info" },
-  delivered: { label: "Delivered", variant: "success" },
-  cancelled: { label: "Cancelled", variant: "danger" },
-  refunded: { label: "Refunded", variant: "default" },
-};
-
-const paymentStatusMeta: Record<string, { label: string; variant: "default" | "success" | "warning" | "danger" | "info" }> = {
-  pending: { label: "Pending", variant: "warning" },
-  paid: { label: "Paid", variant: "success" },
-  refunded: { label: "Refunded", variant: "default" },
-  failed: { label: "Failed", variant: "danger" },
-};
 
 export default function AdminOrdersPage() {
   const [status, setStatus] = useState("");
@@ -108,8 +92,8 @@ export default function AdminOrdersPage() {
               </thead>
               <tbody>
                 {data?.map((order) => {
-                  const orderMeta = orderStatusMeta[order.status] ?? { label: order.status, variant: "default" as const };
-                  const paymentMeta = paymentStatusMeta[order.payment_status] ?? {
+                  const orderMeta = ORDER_STATUS_META[order.status] ?? { label: order.status, variant: "default" as const };
+                  const paymentMeta = PAYMENT_STATUS_META[order.payment_status] ?? {
                     label: order.payment_status,
                     variant: "default" as const,
                   };
