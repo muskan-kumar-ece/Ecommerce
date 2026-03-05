@@ -26,20 +26,47 @@ export default function OrderSuccessPage({ searchParams }: OrderSuccessPageProps
           <CheckCircle className="h-16 w-16 text-emerald-500" aria-hidden="true" />
           <CardTitle className="text-3xl">Order Confirmed</CardTitle>
           <CardDescription className="max-w-md text-base text-neutral-600 dark:text-neutral-300">
-            Thank you for your purchase. We&apos;ve received your order and will
-            send an update as soon as it ships.
+            Your order has been placed successfully. We&apos;ll start preparing it
+            right away.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6 text-center">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-neutral-500 dark:text-neutral-400">
-            Order Number
-          </p>
-          <p className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-            {orderNumber}
-          </p>
-          <Button asChild size="lg" className="w-full sm:w-auto">
-            <Link href="/">Continue Shopping</Link>
-          </Button>
+        <CardContent className="space-y-6">
+          <div className="border-t border-neutral-200 pt-6 dark:border-neutral-800">
+            <dl className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-sm text-neutral-600 dark:text-neutral-300">Order Number</dt>
+                <dd className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{orderNumber}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-sm text-neutral-600 dark:text-neutral-300">Estimated Delivery</dt>
+                <dd className="text-sm font-medium text-neutral-900 dark:text-neutral-100">3–5 business days</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-sm text-neutral-600 dark:text-neutral-300">Payment Status</dt>
+                <dd className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Paid</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="border-t border-neutral-200 pt-6 text-sm text-neutral-600 dark:border-neutral-800 dark:text-neutral-300">
+            We&apos;ve sent a confirmation email with your order details.
+          </div>
+
+          <div className="border-t border-neutral-200 pt-6 dark:border-neutral-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <Button asChild size="lg" className="w-full sm:w-auto hover:-translate-y-0.5">
+                <Link href="/">Continue Shopping</Link>
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                variant="secondary"
+                className="w-full sm:w-auto hover:-translate-y-0.5"
+              >
+                <Link href="/account/orders">View Orders</Link>
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
