@@ -30,6 +30,17 @@ export type ProductReview = {
   updated_at?: string;
 };
 
+export type WishlistItem = {
+  id: number;
+  product: number;
+  product_details?: Product;
+  product_name?: string;
+  product_price?: string;
+  image_url?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type CartItem = {
   id: number;
   cart: number;

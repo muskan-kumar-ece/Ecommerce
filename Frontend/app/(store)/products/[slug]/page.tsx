@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ReviewCard } from "@/components/reviews/review-card";
 import { ReviewForm } from "@/components/reviews/review-form";
+import { WishlistButton } from "@/components/wishlist/wishlist-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchProductBySlug } from "@/lib/api/products";
@@ -55,6 +56,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
           <p className="text-slate-600">{product.description}</p>
           <p className="text-lg font-semibold">₹{product.price}</p>
           <p className="text-sm text-slate-500">SKU: {product.sku}</p>
+          <WishlistButton productId={product.id} />
         </CardContent>
       </Card>
 
