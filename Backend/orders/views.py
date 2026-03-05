@@ -49,9 +49,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""
-        if self.action == 'retrieve':
-            return OrderDetailSerializer
-        if self.action in ['list', 'my_orders']:
+        if self.action in ['retrieve', 'list']:
             return OrderDetailSerializer
         return self.serializer_class
 

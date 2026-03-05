@@ -171,7 +171,8 @@ class OrderCreateWithItemsAPITests(TestCase):
         self.assertIn("id", response.data)
         self.assertIn("items", response.data)
         self.assertEqual(len(response.data["items"]), 2)
-        self.assertEqual(response.data["total_amount"], "53000.00")
+        expected_total = str(self.product1.price * 1 + self.product2.price * 2)
+        self.assertEqual(response.data["total_amount"], expected_total)
         self.assertEqual(response.data["status"], Order.Status.PENDING)
         self.assertEqual(response.data["payment_status"], Order.PaymentStatus.PENDING)
 
@@ -193,10 +194,11 @@ class OrderCreateWithItemsAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["total_amount"], "100000.00")
+        expected_total = str(self.product1.price * 2)
+        self.assertEqual(response.data["total_amount"], expected_total)
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(response.data["items"][0]["quantity"], 2)
-        self.assertEqual(response.data["items"][0]["price"], "50000.00")
+        self.assertEqual(response.data["items"][0]["price"], str(self.product1.price))
 
     def test_create_order_requires_authentication(self):
         """Test that creating an order requires authentication."""
