@@ -1,8 +1,10 @@
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
+from products.models import Product
 from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
 
 
@@ -66,6 +68,113 @@ class OrderItemSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = ("id", "order", "product", "quantity", "price", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
+
+
+class OrderItemInputSerializer(serializers.Serializer):
+    """Serializer for order item input when creating an order."""
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+    def validate_product_id(self, value):
+        """Validate that the product exists and is active."""
+        try:
+            product = Product.objects.get(id=value, is_active=True)
+        except Product.DoesNotExist:
+            raise serializers.ValidationError(f"Product with id {value} does not exist or is inactive.")
+        return value
+
+
+class CreateOrderSerializer(serializers.Serializer):
+    """Serializer for creating an order with items."""
+    items = OrderItemInputSerializer(many=True)
+
+    def validate_items(self, value):
+        """Validate that at least one item is provided."""
+        if not value:
+            raise serializers.ValidationError("At least one item is required to create an order.")
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        """Create an order with items."""
+        request = self.context.get("request")
+        items_data = validated_data.get("items", [])
+
+        # Fetch all products in one query
+        product_ids = [item["product_id"] for item in items_data]
+        products = {p.id: p for p in Product.objects.filter(id__in=product_ids, is_active=True)}
+
+        # Calculate total price
+        total_price = Decimal("0.00")
+        order_items_data = []
+        for item_data in items_data:
+            product = products.get(item_data["product_id"])
+            if not product:
+                raise serializers.ValidationError(
+                    f"Product with id {item_data['product_id']} does not exist or is inactive."
+                )
+            item_total = product.price * item_data["quantity"]
+            total_price += item_total
+            order_items_data.append({
+                "product": product,
+                "quantity": item_data["quantity"],
+                "price": product.price,
+            })
+
+        # Create the order
+        order = Order.objects.create(
+            user=request.user,
+            total_amount=total_price,
+            status=Order.Status.PENDING,
+            payment_status=Order.PaymentStatus.PENDING,
+        )
+
+        # Create order items
+        order_items = [
+            OrderItem(
+                order=order,
+                product=item["product"],
+                quantity=item["quantity"],
+                price=item["price"],
+            )
+            for item in order_items_data
+        ]
+        OrderItem.objects.bulk_create(order_items)
+
+        return order
+
+
+class OrderDetailSerializer(serializers.ModelSerializer):
+    """Serializer for order detail with items."""
+    items = OrderItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = (
+            "id",
+            "user",
+            "total_amount",
+            "gross_amount",
+            "coupon_discount",
+            "applied_coupon",
+            "status",
+            "payment_status",
+            "tracking_id",
+            "items",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "user",
+            "status",
+            "payment_status",
+            "gross_amount",
+            "coupon_discount",
+            "applied_coupon",
+            "created_at",
+            "updated_at",
+        )
 
 
 class ShippingAddressSerializer(serializers.ModelSerializer):
