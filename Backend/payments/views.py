@@ -402,6 +402,7 @@ class RazorpayWebhookView(APIView):
                 current_status = payment.order.payment_status
                 next_status = Order.PaymentStatus.PAID
                 if next_status in allowed_order_status_transitions.get(current_status, set()):
+                    should_send_payment_email = payment.order.payment_status != next_status
                     _deduct_order_stock(payment.order)
                     payment.status = Payment.Status.CAPTURED
                     payment.verified_at = timezone.now()
@@ -412,7 +413,8 @@ class RazorpayWebhookView(APIView):
                         order_update_fields.append("status")
                     payment.order.save(update_fields=order_update_fields)
                     _issue_referral_reward(payment.order)
-                    send_order_email("payment_success", payment.order)
+                    if should_send_payment_email:
+                        send_order_email("payment_success", payment.order)
                 else:
                     logger.warning(
                         "Ignoring webhook transition %s -> %s for order_id=%s",

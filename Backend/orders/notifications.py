@@ -1,6 +1,9 @@
+from smtplib import SMTPException
+
 from django.conf import settings
+from django.core.mail import BadHeaderError
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import EmailEvent, Order
@@ -35,13 +38,22 @@ def _build_order_email_message(email_type: str, order: Order) -> str:
 
 def send_order_email(email_type: str, order: Order) -> bool:
     if email_type not in EMAIL_SUBJECTS:
-        raise ValueError("Unsupported email type.")
+        raise ValueError(
+            f"Unsupported email type: {email_type}. Valid types are: {', '.join(EMAIL_SUBJECTS.keys())}."
+        )
 
     with transaction.atomic():
-        email_event, _ = EmailEvent.objects.select_for_update().get_or_create(
-            order=order,
-            email_type=email_type,
-        )
+        try:
+            email_event, _ = EmailEvent.objects.get_or_create(
+                order=order,
+                email_type=email_type,
+            )
+        except IntegrityError:
+            email_event = EmailEvent.objects.get(
+                order=order,
+                email_type=email_type,
+            )
+        email_event = EmailEvent.objects.select_for_update().get(pk=email_event.pk)
         if email_event.status == EmailEvent.Status.SENT:
             return False
 
@@ -53,7 +65,7 @@ def send_order_email(email_type: str, order: Order) -> bool:
                 recipient_list=[order.user.email],
                 fail_silently=False,
             )
-        except Exception:
+        except (SMTPException, BadHeaderError, OSError):
             email_event.status = EmailEvent.Status.FAILED
             email_event.sent_at = None
             email_event.save(update_fields=["status", "sent_at", "updated_at"])
