@@ -15,7 +15,13 @@ type ReviewCardProps = {
 
 export function ReviewCard({ userName, rating, comment, createdAt }: ReviewCardProps) {
   const createdDate = new Date(createdAt);
-  const createdDateText = Number.isNaN(createdDate.getTime()) ? "Unknown date" : createdDate.toLocaleDateString();
+  const createdDateText = Number.isNaN(createdDate.getTime())
+    ? "Unknown date"
+    : createdDate.toLocaleDateString("en-IN", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
 
   return (
     <Card className="h-full">
