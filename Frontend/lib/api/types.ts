@@ -68,9 +68,20 @@ export type Order = {
   status: string;
   payment_status: string;
   tracking_id: string | null;
+  shipping_provider?: string | null;
+  shipped_at?: string | null;
+  delivered_at?: string | null;
+  shipping_events?: ShippingEvent[];
   items?: OrderItem[];
   created_at: string;
   updated_at: string;
+};
+
+export type ShippingEvent = {
+  id: number;
+  event_type: "created" | "picked_up" | "in_transit" | "out_for_delivery" | "delivered";
+  location: string;
+  timestamp: string;
 };
 
 export type OrderItem = {

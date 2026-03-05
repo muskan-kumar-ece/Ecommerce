@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from products.models import Product
 
@@ -93,6 +94,9 @@ class Order(models.Model):
     idempotency_key = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     applied_coupon = models.ForeignKey("Coupon", null=True, blank=True, on_delete=models.SET_NULL, related_name="orders")
     tracking_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    shipping_provider = models.CharField(max_length=100, blank=True, null=True)
+    shipped_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -177,6 +181,30 @@ class EmailEvent(models.Model):
 
     def __str__(self):
         return f"Order {self.order_id} email {self.email_type}: {self.status}"
+
+
+class ShippingEvent(models.Model):
+    class EventType(models.TextChoices):
+        CREATED = "created", "Created"
+        PICKED_UP = "picked_up", "Picked Up"
+        IN_TRANSIT = "in_transit", "In Transit"
+        OUT_FOR_DELIVERY = "out_for_delivery", "Out for Delivery"
+        DELIVERED = "delivered", "Delivered"
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="shipping_events")
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    location = models.CharField(max_length=255, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("timestamp", "created_at")
+        indexes = [
+            models.Index(fields=["order", "timestamp"]),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_id} shipping {self.event_type}"
 
 
 class OrderItem(models.Model):

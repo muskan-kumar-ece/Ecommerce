@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from products.models import Product
-from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
+from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress, ShippingEvent
 
 
 class CartSerializer(serializers.ModelSerializer):
@@ -41,6 +41,9 @@ class OrderSerializer(serializers.ModelSerializer):
             "status",
             "payment_status",
             "tracking_id",
+            "shipping_provider",
+            "shipped_at",
+            "delivered_at",
             "created_at",
             "updated_at",
         )
@@ -147,6 +150,11 @@ class CreateOrderSerializer(serializers.Serializer):
 class OrderDetailSerializer(serializers.ModelSerializer):
     """Serializer for order detail with items."""
     items = OrderItemSerializer(many=True, read_only=True)
+    shipping_events = serializers.SerializerMethodField()
+
+    def get_shipping_events(self, obj):
+        events = obj.shipping_events.all()
+        return ShippingEventSerializer(events, many=True).data
 
     class Meta:
         model = Order
@@ -160,6 +168,10 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "status",
             "payment_status",
             "tracking_id",
+            "shipping_provider",
+            "shipped_at",
+            "delivered_at",
+            "shipping_events",
             "items",
             "created_at",
             "updated_at",
@@ -201,6 +213,17 @@ class ShippingAddressSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+
+class ShippingEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShippingEvent
+        fields = (
+            "id",
+            "event_type",
+            "location",
+            "timestamp",
+        )
 
 
 class CouponSerializer(serializers.ModelSerializer):

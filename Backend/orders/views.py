@@ -45,7 +45,11 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user).select_related("shipping_address").prefetch_related("items")
+        return (
+            Order.objects.filter(user=self.request.user)
+            .select_related("shipping_address")
+            .prefetch_related("items", "shipping_events")
+        )
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""

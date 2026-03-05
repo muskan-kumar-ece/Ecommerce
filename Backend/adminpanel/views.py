@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import Count, DecimalField, F, Q, Sum, Value
@@ -11,12 +12,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.notifications import send_order_email
-from orders.models import Order, OrderEvent
+from orders.models import Order, OrderEvent, ShippingEvent
 from users.models import Referral
 
 from .serializers import (
+    AdminDeliverOrderSerializer,
     AdminOrderDetailSerializer,
     AdminOrderListSerializer,
+    AdminShipOrderSerializer,
     AdminOrderStatusUpdateSerializer,
     AnalyticsSummarySerializer,
 )
@@ -141,6 +144,7 @@ class AdminOrderDetailView(APIView):
             Order.objects.select_related("user", "shipping_address").prefetch_related(
                 "items__product",
                 "events__changed_by",
+                "shipping_events",
             ),
             pk=order_id,
         )
@@ -185,7 +189,68 @@ class AdminOrderStatusUpdateView(APIView):
 
         order = (
             Order.objects.select_related("user", "shipping_address")
-            .prefetch_related("items__product", "events__changed_by")
+            .prefetch_related("items__product", "events__changed_by", "shipping_events")
+            .get(pk=order.pk)
+        )
+        return Response(AdminOrderDetailSerializer(order).data)
+
+
+class AdminShipOrderView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @transaction.atomic
+    def post(self, request, order_id):
+        order = get_object_or_404(Order.objects.select_for_update(), pk=order_id)
+        serializer = AdminShipOrderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if order.status == Order.Status.DELIVERED:
+            return Response({"detail": "Delivered orders cannot be marked as shipped."}, status=400)
+        if order.status != Order.Status.SHIPPED:
+            order.status = Order.Status.SHIPPED
+        if not order.tracking_id:
+            order.tracking_id = f"TRK-{uuid4().hex[:12].upper()}"
+        order.shipping_provider = serializer.validated_data.get("shipping_provider") or order.shipping_provider or "Manual"
+        if not order.shipped_at:
+            order.shipped_at = timezone.now()
+        order.save(update_fields=["status", "tracking_id", "shipping_provider", "shipped_at", "updated_at"])
+        ShippingEvent.objects.create(
+            order=order,
+            event_type=ShippingEvent.EventType.CREATED,
+            location=serializer.validated_data.get("location", ""),
+        )
+        send_order_email("order_shipped", order)
+        order = (
+            Order.objects.select_related("user", "shipping_address")
+            .prefetch_related("items__product", "events__changed_by", "shipping_events")
+            .get(pk=order.pk)
+        )
+        return Response(AdminOrderDetailSerializer(order).data)
+
+
+class AdminDeliverOrderView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @transaction.atomic
+    def post(self, request, order_id):
+        order = get_object_or_404(Order.objects.select_for_update(), pk=order_id)
+        serializer = AdminDeliverOrderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if order.status == Order.Status.DELIVERED:
+            return Response({"detail": "Order already delivered."}, status=200)
+        if order.status != Order.Status.SHIPPED:
+            return Response({"detail": "Only shipped orders can be marked delivered."}, status=400)
+        order.status = Order.Status.DELIVERED
+        order.delivered_at = timezone.now()
+        order.save(update_fields=["status", "delivered_at", "updated_at"])
+        ShippingEvent.objects.create(
+            order=order,
+            event_type=ShippingEvent.EventType.DELIVERED,
+            location=serializer.validated_data.get("location", ""),
+        )
+        send_order_email("order_delivered", order)
+        order = (
+            Order.objects.select_related("user", "shipping_address")
+            .prefetch_related("items__product", "events__changed_by", "shipping_events")
             .get(pk=order.pk)
         )
         return Response(AdminOrderDetailSerializer(order).data)

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from orders.models import Order, OrderEvent, OrderItem, ShippingAddress
+from orders.models import Order, OrderEvent, OrderItem, ShippingAddress, ShippingEvent
 
 class AnalyticsSummarySerializer(serializers.Serializer):
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
@@ -76,12 +76,24 @@ class AdminOrderEventSerializer(serializers.ModelSerializer):
         )
 
 
+class AdminShippingEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShippingEvent
+        fields = (
+            "id",
+            "event_type",
+            "location",
+            "timestamp",
+        )
+
+
 class AdminOrderDetailSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
     user_name = serializers.CharField(source="user.name", read_only=True)
     items = AdminOrderItemSerializer(many=True, read_only=True)
     shipping_address = AdminShippingAddressSerializer(read_only=True)
     timeline = AdminOrderEventSerializer(source="events", many=True, read_only=True)
+    shipping_timeline = AdminShippingEventSerializer(source="shipping_events", many=True, read_only=True)
 
     class Meta:
         model = Order
@@ -96,11 +108,15 @@ class AdminOrderDetailSerializer(serializers.ModelSerializer):
             "status",
             "payment_status",
             "tracking_id",
+            "shipping_provider",
+            "shipped_at",
+            "delivered_at",
             "created_at",
             "updated_at",
             "items",
             "shipping_address",
             "timeline",
+            "shipping_timeline",
         )
 
 
@@ -118,3 +134,12 @@ class AdminOrderStatusUpdateSerializer(serializers.Serializer):
         if value == "processing":
             return Order.Status.CONFIRMED
         return value
+
+
+class AdminShipOrderSerializer(serializers.Serializer):
+    shipping_provider = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class AdminDeliverOrderSerializer(serializers.Serializer):
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)

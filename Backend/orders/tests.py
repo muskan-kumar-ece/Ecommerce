@@ -12,7 +12,7 @@ from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
-from .models import Cart, Coupon, CouponUsage, EmailEvent, Order, OrderEvent, OrderItem, ShippingAddress
+from .models import Cart, Coupon, CouponUsage, EmailEvent, Order, OrderEvent, OrderItem, ShippingAddress, ShippingEvent
 from .notifications import send_order_email
 from .views import OrderViewSet
 
@@ -302,6 +302,33 @@ class OrderCreateWithItemsAPITests(TestCase):
         self.assertIn("items", response.data)
         self.assertEqual(len(response.data["items"]), 2)
 
+    def test_order_detail_includes_shipping_timeline_fields(self):
+        order = Order.objects.create(
+            user=self.user,
+            total_amount=Decimal("1000.00"),
+            tracking_id="TRK-123",
+            shipping_provider="BlueDart",
+            shipped_at=timezone.now() - timedelta(days=1),
+            delivered_at=timezone.now(),
+            status=Order.Status.DELIVERED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
+        ShippingEvent.objects.create(
+            order=order,
+            event_type=ShippingEvent.EventType.IN_TRANSIT,
+            location="Delhi Hub",
+        )
+
+        response = self.client.get(f"/api/v1/orders/{order.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tracking_id"], "TRK-123")
+        self.assertEqual(response.data["shipping_provider"], "BlueDart")
+        self.assertIn("shipped_at", response.data)
+        self.assertIn("delivered_at", response.data)
+        self.assertIn("shipping_events", response.data)
+        self.assertEqual(len(response.data["shipping_events"]), 1)
+
 
 class CouponAPITests(TestCase):
     def setUp(self):
@@ -537,6 +564,52 @@ class AdminOrderManagementAPITests(TestCase):
         self.assertEqual(event.previous_status, Order.Status.PENDING)
         self.assertEqual(event.new_status, Order.Status.CONFIRMED)
         self.assertEqual(event.changed_by, self.admin_user)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_ship_endpoint_sets_tracking_and_creates_shipping_event(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+        self.order.status = Order.Status.CONFIRMED
+        self.order.save(update_fields=["status", "updated_at"])
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/ship/",
+            {"shipping_provider": "BlueDart", "location": "Bengaluru Hub"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.SHIPPED)
+        self.assertEqual(self.order.shipping_provider, "BlueDart")
+        self.assertTrue(self.order.tracking_id)
+        self.assertIsNotNone(self.order.shipped_at)
+        shipping_event = ShippingEvent.objects.get(order=self.order)
+        self.assertEqual(shipping_event.event_type, ShippingEvent.EventType.CREATED)
+        self.assertEqual(shipping_event.location, "Bengaluru Hub")
+        mock_send_order_email.assert_called_once_with("order_shipped", self.order)
+
+    @patch("adminpanel.views.send_order_email")
+    def test_admin_deliver_endpoint_marks_order_delivered_and_creates_event(self, mock_send_order_email):
+        self.client.force_authenticate(user=self.admin_user)
+        self.order.status = Order.Status.SHIPPED
+        self.order.shipped_at = timezone.now() - timedelta(hours=3)
+        self.order.tracking_id = "TRK-EXISTING"
+        self.order.shipping_provider = "BlueDart"
+        self.order.save(update_fields=["status", "shipped_at", "tracking_id", "shipping_provider", "updated_at"])
+
+        response = self.client.post(
+            f"/admin/orders/{self.order.id}/deliver/",
+            {"location": "Customer Address"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.DELIVERED)
+        self.assertIsNotNone(self.order.delivered_at)
+        shipping_event = ShippingEvent.objects.get(order=self.order, event_type=ShippingEvent.EventType.DELIVERED)
+        self.assertEqual(shipping_event.location, "Customer Address")
+        mock_send_order_email.assert_called_once_with("order_delivered", self.order)
 
     @patch("adminpanel.views.send_order_email")
     def test_admin_status_update_triggers_shipped_and_delivered_emails(self, mock_send_order_email):
