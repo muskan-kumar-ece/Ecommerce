@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.db.models import F
 from django.utils.html import format_html
 
-from .models import Category, Inventory, Product, ProductImage
+from .models import Category, Inventory, Product, ProductImage, Review
 
 
 @admin.register(Category)
@@ -60,3 +60,11 @@ class InventoryAdmin(admin.ModelAdmin):
         if available < obj.reorder_level:
             return format_html('<span style="color:#dc2626;font-weight:700;">Reorder</span>')
         return format_html('<span style="color:#16a34a;font-weight:600;">OK</span>')
+
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ("id", "product", "user", "rating", "title", "created_at")
+    list_filter = ("rating", "created_at")
+    search_fields = ("product__name", "user__email", "title", "comment")
+    list_select_related = ("product", "user")
