@@ -9,7 +9,7 @@ import { WishlistButton } from "@/components/wishlist/wishlist-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchProductBySlug } from "@/lib/api/products";
-import { createProductReview, fetchProductReviews } from "@/lib/api/reviews";
+import { createProductReview, fetchProductReviews, updateProductReview } from "@/lib/api/reviews";
 
 export default function ProductDetailPage({ params }: { params: { slug: string } }) {
   const { accessToken } = useAuth();
@@ -31,20 +31,25 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
   });
 
   const reviewMutation = useMutation({
-    mutationFn: ({ rating, comment }: { rating: number; comment: string }) =>
-      createProductReview(product!.id, rating, comment),
+    mutationFn: ({ rating, title, comment }: { rating: number; title: string; comment: string }) => {
+      const existingReview = reviews.find((review) => review.is_mine);
+      if (existingReview) {
+        return updateProductReview(existingReview.id, product!.id, rating, title, comment);
+      }
+      return createProductReview(product!.id, rating, title, comment);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["product-reviews", product?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["product", params.slug] });
     },
   });
 
   if (isError) return <p className="text-sm text-rose-600">Unable to load product details.</p>;
   if (isLoading || !product) return <p className="text-sm text-slate-500">Loading product...</p>;
 
-  const averageRating =
-    reviews.length > 0
-      ? (reviews.reduce((total, review) => total + review.rating, 0) / reviews.length).toFixed(1)
-      : "0.0";
+  const averageRating = Number(product.average_rating ?? 0).toFixed(1);
+  const reviewsCount = product.reviews_count ?? reviews.length;
+  const myReview = reviews.find((review) => review.is_mine);
 
   return (
     <div className="space-y-8">
@@ -65,7 +70,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
           <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-50">Customer Reviews</h2>
           <div className="flex items-center gap-2">
             <Badge variant="info">Average: {averageRating} / 5</Badge>
-            <Badge>{reviews.length} reviews</Badge>
+            <Badge>{reviewsCount} reviews</Badge>
           </div>
         </div>
 
@@ -82,6 +87,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 key={review.id}
                 userName={review.user_name}
                 rating={review.rating}
+                title={review.title}
                 comment={review.comment}
                 createdAt={review.created_at}
               />
@@ -91,10 +97,14 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
 
         {accessToken ? (
           <ReviewForm
-            onSubmit={async (rating, comment) => {
-              await reviewMutation.mutateAsync({ rating, comment });
+            onSubmit={async (rating, title, comment) => {
+              await reviewMutation.mutateAsync({ rating, title, comment });
             }}
             isSubmitting={reviewMutation.isPending}
+            initialRating={myReview?.rating ?? 5}
+            initialTitle={myReview?.title ?? ""}
+            initialComment={myReview?.comment ?? ""}
+            mode={myReview ? "edit" : "create"}
           />
         ) : (
           <p className="text-sm text-neutral-500">Log in to write a review.</p>

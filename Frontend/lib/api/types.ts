@@ -16,6 +16,8 @@ export type Product = {
   is_refurbished: boolean;
   condition_grade: string;
   is_active: boolean;
+  average_rating?: number;
+  reviews_count?: number;
   created_at: string;
   updated_at: string;
 };
@@ -25,6 +27,8 @@ export type ProductReview = {
   product: number;
   user_name: string;
   rating: number;
+  title: string;
+  is_mine?: boolean;
   comment: string;
   created_at: string;
   updated_at?: string;

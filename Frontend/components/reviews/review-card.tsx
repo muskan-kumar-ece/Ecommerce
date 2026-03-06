@@ -9,11 +9,12 @@ import { cn } from "@/lib/utils";
 type ReviewCardProps = {
   userName: string;
   rating: number;
+  title: string;
   comment: string;
   createdAt: string;
 };
 
-export function ReviewCard({ userName, rating, comment, createdAt }: ReviewCardProps) {
+export function ReviewCard({ userName, rating, title, comment, createdAt }: ReviewCardProps) {
   const createdDate = new Date(createdAt);
   const createdDateText = Number.isNaN(createdDate.getTime())
     ? "Unknown date"
@@ -43,6 +44,7 @@ export function ReviewCard({ userName, rating, comment, createdAt }: ReviewCardP
         </div>
       </CardHeader>
       <CardContent>
+        <p className="mb-2 text-sm font-semibold text-neutral-800 dark:text-neutral-100">{title}</p>
         <p className="text-sm text-neutral-600 dark:text-neutral-300">{comment}</p>
       </CardContent>
     </Card>
