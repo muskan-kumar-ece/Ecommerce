@@ -1,12 +1,14 @@
 from decimal import Decimal
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from orders.models import Order, OrderItem
-from .models import Category, Product
+from .models import Category, FlashSale, Product
 
 
 class ProductModelTests(TestCase):
@@ -382,3 +384,61 @@ class ProductReviewAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["results"][0]["reviews_count"], 2)
         self.assertEqual(response.data["results"][0]["average_rating"], 4.0)
+
+
+class FlashSaleAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.category = Category.objects.create(name="Flash Sale Category")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Flash Sale Product",
+            description="Discounted product",
+            price=Decimal("1000.00"),
+            sku="FLASH-001",
+            stock_quantity=25,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+
+    def test_flash_sale_list_and_detail_include_countdown_and_discounted_price(self):
+        now = timezone.now()
+        sale = FlashSale.objects.create(
+            product=self.product,
+            discount_percentage=25,
+            start_time=now - timedelta(minutes=5),
+            end_time=now + timedelta(hours=1),
+            stock_limit=10,
+            sold_quantity=3,
+        )
+
+        list_response = self.client.get("/api/v1/flash-sales/")
+        detail_response = self.client.get(f"/api/v1/flash-sales/{sale.id}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data), 1)
+        self.assertEqual(Decimal(list_response.data[0]["discounted_price"]), Decimal("750.00"))
+        self.assertEqual(list_response.data[0]["remaining_stock"], 7)
+        self.assertTrue(list_response.data[0]["is_active"])
+        self.assertGreater(list_response.data[0]["countdown_seconds"], 0)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["id"], sale.id)
+
+    def test_flash_sale_not_active_when_stock_limit_exhausted(self):
+        now = timezone.now()
+        sale = FlashSale.objects.create(
+            product=self.product,
+            discount_percentage=10,
+            start_time=now - timedelta(minutes=10),
+            end_time=now + timedelta(minutes=10),
+            stock_limit=5,
+            sold_quantity=5,
+        )
+
+        response = self.client.get(f"/api/v1/flash-sales/{sale.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["is_active"])
+        self.assertEqual(response.data["remaining_stock"], 0)
+        self.assertEqual(response.data["countdown_seconds"], 0)

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Category, Inventory, Product, ProductImage, Review
+from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 from orders.models import Order, OrderItem
 
 
@@ -156,3 +156,45 @@ class ReviewSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         return Review.objects.create(user=request.user, **validated_data)
+
+
+class FlashSaleSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    original_price = serializers.DecimalField(source="product.price", max_digits=12, decimal_places=2, read_only=True)
+    discounted_price = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
+    remaining_stock = serializers.SerializerMethodField()
+    countdown_seconds = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FlashSale
+        fields = (
+            "id",
+            "product",
+            "product_name",
+            "discount_percentage",
+            "original_price",
+            "discounted_price",
+            "start_time",
+            "end_time",
+            "stock_limit",
+            "sold_quantity",
+            "remaining_stock",
+            "is_active",
+            "countdown_seconds",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_discounted_price(self, obj):
+        return obj.discounted_price()
+
+    def get_is_active(self, obj):
+        return obj.is_active()
+
+    def get_remaining_stock(self, obj):
+        return obj.remaining_stock()
+
+    def get_countdown_seconds(self, obj):
+        return obj.countdown_seconds()

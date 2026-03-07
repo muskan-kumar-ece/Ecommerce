@@ -12,7 +12,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from .models import Category, Inventory, Product, ProductImage, Review
+from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 from .permissions import IsAdminOrReadOnly
 from .serializers import (
     CategorySerializer,
@@ -22,6 +22,7 @@ from .serializers import (
     ProductSerializer,
     ProductSuggestionSerializer,
     ReviewSerializer,
+    FlashSaleSerializer,
 )
 
 
@@ -103,6 +104,12 @@ class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.select_related("product")
     serializer_class = InventorySerializer
     permission_classes = [IsAdminOrReadOnly]
+
+
+class FlashSaleViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = FlashSale.objects.select_related("product").filter(product__is_active=True)
+    serializer_class = FlashSaleSerializer
+    permission_classes = [permissions.AllowAny]
 
 
 class ProductReviewListView(ListAPIView):

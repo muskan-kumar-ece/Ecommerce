@@ -14,6 +14,7 @@ urlpatterns = [
     path("search/suggestions", ProductSearchSuggestionsView.as_view(), name="product-search-suggestions-no-slash"),
     path("users/", include("users.urls")),
     path("products/", include("products.urls")),
+    path("flash-sales/", include("products.flash_sale_urls")),
     path("reviews/", include("products.review_urls")),
     path("orders/", include("orders.urls")),
     path("payments/", include("payments.urls")),
