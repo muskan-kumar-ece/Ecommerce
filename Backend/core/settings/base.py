@@ -33,6 +33,7 @@ LOCAL_APPS = [
     "orders",
     "payments",
     "apps.wishlist",
+    "apps.recommendations",
     "adminpanel",
 ]
 
