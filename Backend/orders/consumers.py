@@ -18,7 +18,7 @@ class OrderConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
 
-        self.group_name = get_order_updates_group_name(user.id)
+        self.group_name = get_order_updates_group_name(user.id, order_id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
@@ -28,8 +28,6 @@ class OrderConsumer(AsyncJsonWebsocketConsumer):
             await self.channel_layer.group_discard(group_name, self.channel_name)
 
     async def order_update(self, event):
-        if event["order_id"] != self.scope["url_route"]["kwargs"]["order_id"]:
-            return
         await self.send_json(
             {
                 "order_id": event["order_id"],

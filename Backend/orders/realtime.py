@@ -10,8 +10,8 @@ ORDER_STATUS_LABELS = {
 }
 
 
-def get_order_updates_group_name(user_id):
-    return f"order_updates_{user_id}"
+def get_order_updates_group_name(user_id, order_id):
+    return f"order_updates_{user_id}_{order_id}"
 
 
 def get_order_status_label(status):
@@ -24,7 +24,7 @@ def handle_order_update_event(order):
         return
 
     async_to_sync(channel_layer.group_send)(
-        get_order_updates_group_name(order.user_id),
+        get_order_updates_group_name(order.user_id, order.id),
         {
             "type": "order.update",
             "order_id": order.id,

@@ -50,7 +50,7 @@ class OrderConsumerTests(TestCase):
 
         channel_layer = get_channel_layer()
         channel_name = async_to_sync(channel_layer.new_channel)("orders-tests")
-        group_name = get_order_updates_group_name(self.user.id)
+        group_name = get_order_updates_group_name(self.user.id, self.order.id)
         async_to_sync(channel_layer.group_add)(group_name, channel_name)
 
         handle_order_update_event(self.order)
@@ -65,7 +65,7 @@ class OrderConsumerTests(TestCase):
     def test_order_update_signal_broadcasts_status_changes(self):
         channel_layer = get_channel_layer()
         channel_name = async_to_sync(channel_layer.new_channel)("orders-tests")
-        group_name = get_order_updates_group_name(self.user.id)
+        group_name = get_order_updates_group_name(self.user.id, self.order.id)
         async_to_sync(channel_layer.group_add)(group_name, channel_name)
 
         self.order.status = Order.Status.SHIPPED
