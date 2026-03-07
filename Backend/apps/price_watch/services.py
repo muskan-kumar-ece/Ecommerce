@@ -18,7 +18,7 @@ def add_price_watch(user, product):
 
 
 def check_price_drops():
-    watches = PriceWatch.objects.select_related("user", "product").all()
+    watches = PriceWatch.objects.select_related("user", "product").iterator(chunk_size=200)
     checked_count = 0
     notified_count = 0
     for watch in watches:
@@ -28,7 +28,7 @@ def check_price_drops():
         if new_price < old_price:
             with transaction.atomic():
                 watch_for_update = PriceWatch.objects.select_for_update().get(pk=watch.pk)
-                sent = send_price_drop_email(watch_for_update, old_price=watch_for_update.last_price, new_price=new_price)
+                sent = send_price_drop_email(watch_for_update, old_price=old_price, new_price=new_price)
                 watch_for_update.last_price = new_price
                 if sent:
                     watch_for_update.last_notified_at = timezone.now()
