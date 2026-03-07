@@ -14,13 +14,13 @@ def _with_popularity(queryset):
 
 
 def get_similar_products(product_id):
-    base_product = Product.objects.filter(id=product_id).values("category_id").first()
-    if not base_product:
-        return Product.objects.none()
+    category_id = Product.objects.filter(id=product_id).values_list("category_id", flat=True).first()
+    if category_id is None:
+        return []
 
-    return (
+    return list(
         _with_popularity(
-            Product.objects.filter(category_id=base_product["category_id"], is_active=True)
+            Product.objects.filter(category_id=category_id, is_active=True)
             .exclude(id=product_id)
             .select_related("category")
         )
@@ -29,14 +29,21 @@ def get_similar_products(product_id):
 
 
 def get_user_recommendations(user_id):
-    paid_order_items = OrderItem.objects.filter(
-        order__user_id=user_id,
-        order__payment_status=Order.PaymentStatus.PAID,
+    purchased_rows = list(
+        OrderItem.objects.filter(
+            order__user_id=user_id,
+            order__payment_status=Order.PaymentStatus.PAID,
+        )
+        .values_list("product_id", "product__category_id")
+        .distinct()
     )
-    purchased_product_ids = paid_order_items.values_list("product_id", flat=True)
-    purchased_category_ids = paid_order_items.values_list("product__category_id", flat=True)
+    if not purchased_rows:
+        return get_trending_products()
 
-    queryset = (
+    purchased_product_ids = {product_id for product_id, _ in purchased_rows}
+    purchased_category_ids = {category_id for _, category_id in purchased_rows}
+
+    recommendations = list(
         _with_popularity(
             Product.objects.filter(
                 is_active=True,
@@ -48,20 +55,17 @@ def get_user_recommendations(user_id):
         .order_by("-order_count", "-total_quantity", "-created_at")[:10]
     )
 
-    if queryset:
-        return queryset
+    if recommendations:
+        return recommendations
     return get_trending_products()
 
 
 def get_trending_products():
-    return (
+    return list(
         _with_popularity(
-            Product.objects.filter(
-                is_active=True,
-                order_items__order__payment_status=Order.PaymentStatus.PAID,
-            ).select_related("category")
+            Product.objects.filter(is_active=True).select_related("category")
         )
         .filter(order_count__gt=0)
         .order_by("-order_count", "-total_quantity", "-created_at")
-        .distinct()[:10]
+        [:10]
     )

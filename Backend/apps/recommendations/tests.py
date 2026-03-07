@@ -57,7 +57,7 @@ class RecommendationServiceTests(TestCase):
         self._create_paid_order_item(self.user, similar)
         self._create_paid_order_item(self.user, different)
 
-        result_ids = list(get_similar_products(source.id).values_list("id", flat=True))
+        result_ids = [product.id for product in get_similar_products(source.id)]
 
         self.assertIn(similar.id, result_ids)
         self.assertNotIn(source.id, result_ids)
@@ -72,7 +72,7 @@ class RecommendationServiceTests(TestCase):
         self._create_paid_order_item(self.other_user, recommended)
         self._create_paid_order_item(self.other_user, other_category)
 
-        result_ids = list(get_user_recommendations(self.user.id).values_list("id", flat=True))
+        result_ids = [product.id for product in get_user_recommendations(self.user.id)]
 
         self.assertIn(recommended.id, result_ids)
         self.assertNotIn(purchased.id, result_ids)
@@ -82,7 +82,7 @@ class RecommendationServiceTests(TestCase):
         trending_product = self._create_product("Popular Laptop", self.category_a, "SKU-G")
         self._create_paid_order_item(self.other_user, trending_product)
 
-        result_ids = list(get_user_recommendations(self.user.id).values_list("id", flat=True))
+        result_ids = [product.id for product in get_user_recommendations(self.user.id)]
 
         self.assertEqual(result_ids, [trending_product.id])
 
@@ -96,7 +96,7 @@ class RecommendationServiceTests(TestCase):
             for _ in range(index + 1):
                 self._create_paid_order_item(self.other_user, product)
 
-        trending = list(get_trending_products())
+        trending = get_trending_products()
 
         self.assertEqual(len(trending), 10)
         self.assertEqual(trending[0].id, products[-1].id)
