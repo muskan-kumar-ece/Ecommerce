@@ -174,7 +174,7 @@ export default function ProductsPage() {
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">{listing ? `${listing.count} total products` : ""}</p>
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" disabled={!hasPrevious || isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+              <Button type="button" variant="outline" disabled={!hasPrevious || isFetching} onClick={() => setPage((current) => current - 1)}>
                 Previous
               </Button>
               <span className="text-sm text-slate-600">Page {page}</span>
