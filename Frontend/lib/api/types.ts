@@ -122,6 +122,28 @@ export type AnalyticsSummary = {
   last_7_days_revenue: string;
 };
 
+export type AdminTopProduct = {
+  product_id: number;
+  name: string;
+  total_sold: number;
+};
+
+export type AdminRecentOrder = {
+  order_id: number;
+  user_email: string;
+  total_amount: string;
+  status: string;
+  created_at: string;
+};
+
+export type AdminAnalyticsDashboard = {
+  total_orders: number;
+  total_revenue: string;
+  total_users: number;
+  top_products: AdminTopProduct[];
+  recent_orders: AdminRecentOrder[];
+};
+
 export type AdminOrderListItem = {
   id: number;
   user_email: string;

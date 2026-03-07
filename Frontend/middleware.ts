@@ -16,7 +16,10 @@ export async function middleware(request: NextRequest) {
     return redirectToLogin(request);
   }
 
-  if (request.nextUrl.pathname.startsWith("/admin")) {
+  const requiresAdminAccess =
+    request.nextUrl.pathname.startsWith("/admin") || request.nextUrl.pathname.startsWith("/dashboard");
+
+  if (requiresAdminAccess) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/products/`, {
         method: "POST",
@@ -44,5 +47,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/cart/:path*", "/checkout/:path*", "/referral/:path*", "/admin/:path*"],
+  matcher: ["/cart/:path*", "/checkout/:path*", "/referral/:path*", "/admin/:path*", "/dashboard/:path*"],
 };
