@@ -138,6 +138,15 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": config("THROTTLE_RATE_ANON", default="100/hour"),
+        "user": config("THROTTLE_RATE_USER", default="2000/hour"),
+        "auth": config("THROTTLE_RATE_AUTH", default="10/minute"),
+    },
 }
 
 SIMPLE_JWT = {
