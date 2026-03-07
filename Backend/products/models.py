@@ -1,6 +1,8 @@
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 from django.core.validators import MaxValueValidator, MinValueValidator
+from decimal import Decimal
 
 
 class Category(models.Model):
@@ -118,3 +120,46 @@ class Review(models.Model):
 
     def __str__(self):
         return f"Review {self.id} - {self.product.name}"
+
+
+class FlashSale(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="flash_sales")
+    discount_percentage = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(100)])
+    start_time = models.DateTimeField(db_index=True)
+    end_time = models.DateTimeField(db_index=True)
+    stock_limit = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    sold_quantity = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("start_time", "-created_at")
+        indexes = [
+            models.Index(fields=["start_time", "end_time"]),
+            models.Index(fields=["product"]),
+        ]
+
+    def __str__(self):
+        return f"Flash Sale - {self.product.name} ({self.discount_percentage}% off)"
+
+    def has_stock_remaining(self):
+        return self.sold_quantity < self.stock_limit
+
+    def is_active(self):
+        now = timezone.now()
+        return self.start_time <= now <= self.end_time and self.has_stock_remaining()
+
+    def discounted_price(self):
+        discount_factor = Decimal(100 - self.discount_percentage) / Decimal("100")
+        return (self.product.price * discount_factor).quantize(Decimal("0.01"))
+
+    def remaining_stock(self):
+        return max(self.stock_limit - self.sold_quantity, 0)
+
+    def countdown_seconds(self):
+        now = timezone.now()
+        if now < self.start_time:
+            return int((self.start_time - now).total_seconds())
+        if self.is_active():
+            return int((self.end_time - now).total_seconds())
+        return 0

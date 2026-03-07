@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.db.models import F
 from django.utils.html import format_html
 
-from .models import Category, Inventory, Product, ProductImage, Review
+from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 
 
 @admin.register(Category)
@@ -68,3 +68,19 @@ class ReviewAdmin(admin.ModelAdmin):
     list_filter = ("rating", "created_at")
     search_fields = ("product__name", "user__email", "title", "comment")
     list_select_related = ("product", "user")
+
+
+@admin.register(FlashSale)
+class FlashSaleAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "product",
+        "discount_percentage",
+        "start_time",
+        "end_time",
+        "stock_limit",
+        "sold_quantity",
+    )
+    list_filter = ("start_time", "end_time")
+    search_fields = ("product__name", "product__sku")
+    list_select_related = ("product",)

@@ -1,16 +1,33 @@
-from django.db.models import Avg, Count, Value
+from difflib import SequenceMatcher
+
+from django.db.models import Avg, Count, Q, Value
 from django.db.models.functions import Coalesce
 from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, permissions, viewsets
+from rest_framework.generics import GenericAPIView
 from rest_framework.generics import ListAPIView
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 
-from .models import Category, Inventory, Product, ProductImage, Review
+from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 from .permissions import IsAdminOrReadOnly
-from .serializers import CategorySerializer, InventorySerializer, ProductImageSerializer, ProductSerializer, ReviewSerializer
+from .serializers import (
+    CategorySerializer,
+    InventorySerializer,
+    ProductImageSerializer,
+    ProductSearchResultSerializer,
+    ProductSerializer,
+    ProductSuggestionSerializer,
+    ReviewSerializer,
+    FlashSaleSerializer,
+)
+
+
+def normalize_search_query(value):
+    return value.strip().lower()
 
 
 class ReviewPagination(PageNumberPagination):
@@ -89,6 +106,12 @@ class InventoryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly]
 
 
+class FlashSaleViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = FlashSale.objects.select_related("product").filter(product__is_active=True)
+    serializer_class = FlashSaleSerializer
+    permission_classes = [permissions.AllowAny]
+
+
 class ProductReviewListView(ListAPIView):
     serializer_class = ReviewSerializer
     permission_classes = [permissions.AllowAny]
@@ -112,3 +135,114 @@ class ReviewViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, mixins.Des
         if serializer.instance.user_id != self.request.user.id:
             raise PermissionDenied("You can only edit your own review.")
         serializer.save()
+
+
+class ProductSearchView(GenericAPIView):
+    # Threshold chosen so weak fuzzy-only matches are filtered out while exact/near name-category matches remain.
+    MIN_SEARCH_SCORE = 5.0
+    serializer_class = ProductSearchResultSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = ProductPagination
+
+    @staticmethod
+    def _max_similarity(query, text):
+        query = query.lower()
+        text = text.lower()
+        candidates = [text] + text.split()
+        return max(SequenceMatcher(None, query, candidate).ratio() for candidate in candidates if candidate)
+
+    @staticmethod
+    def _candidate_filter(query):
+        if len(query) < 3:
+            chunks = {query}
+        else:
+            chunks = {query[i : i + 3] for i in range(len(query) - 2)}
+        lookup = Q(name__icontains=query) | Q(category__name__icontains=query)
+        for chunk in chunks:
+            if chunk:
+                lookup |= Q(name__icontains=chunk) | Q(category__name__icontains=chunk)
+        return lookup
+
+    def get(self, request):
+        query = normalize_search_query(request.query_params.get("q", ""))
+        if not query:
+            return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+        products = (
+            Product.objects.select_related("category")
+            .only("id", "name", "slug", "price", "category_id", "category__name", "is_active")
+            .filter(is_active=True)
+            .filter(self._candidate_filter(query))
+        )
+        ranked = []
+        for product in products:
+            name = product.name.lower()
+            category_name = product.category.name.lower()
+            score = 0.0
+
+            if query in name:
+                score += 10.0
+            if query in category_name:
+                score += 8.0
+
+            score += self._max_similarity(query, name) * 6.0
+            score += self._max_similarity(query, category_name) * 4.0
+
+            if score >= self.MIN_SEARCH_SCORE:
+                product.relevance_score = round(score, 3)
+                ranked.append(product)
+
+        ranked.sort(key=lambda p: (-p.relevance_score, p.id))
+        page = self.paginate_queryset(ranked)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+class ProductSearchSuggestionsView(GenericAPIView):
+    # Lower threshold than full search to keep autocomplete responsive for partial inputs.
+    MIN_SUGGESTION_SCORE = 2.5
+    MAX_SUGGESTIONS = 10
+    serializer_class = ProductSuggestionSerializer
+    permission_classes = [permissions.AllowAny]
+
+    @staticmethod
+    def _suggestion_score(query, product):
+        query = query.lower()
+        name = product.name.lower()
+        category_name = product.category.name.lower()
+        score = 0.0
+
+        if name.startswith(query):
+            score += 12.0
+        if category_name.startswith(query):
+            score += 6.0
+        if query in name:
+            score += 8.0
+        if query in category_name:
+            score += 4.0
+
+        score += SequenceMatcher(None, query, name).ratio() * 5.0
+        score += SequenceMatcher(None, query, category_name).ratio() * 3.0
+        return score
+
+    def get(self, request):
+        query = normalize_search_query(request.query_params.get("q", ""))
+        if not query:
+            return Response([])
+
+        products = (
+            Product.objects.select_related("category")
+            .only("id", "name", "category_id", "category__name", "is_active")
+            .filter(is_active=True)
+            .filter(ProductSearchView._candidate_filter(query))
+        )
+        scored = []
+        for product in products:
+            score = self._suggestion_score(query, product)
+            if score >= self.MIN_SUGGESTION_SCORE:
+                scored.append((score, product))
+
+        scored.sort(key=lambda item: (-item[0], item[1].id))
+        top_products = [item[1] for item in scored[: self.MAX_SUGGESTIONS]]
+        serializer = self.get_serializer(top_products, many=True)
+        return Response(serializer.data)

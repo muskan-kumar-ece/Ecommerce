@@ -25,6 +25,7 @@ THIRD_PARTY_APPS = [
     "django_filters",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "channels",
 ]
 
 LOCAL_APPS = [
@@ -33,6 +34,10 @@ LOCAL_APPS = [
     "orders",
     "payments",
     "apps.wishlist",
+    "apps.recommendations",
+    "apps.chatbot",
+    "apps.price_watch",
+    "vendors",
     "adminpanel",
 ]
 
@@ -68,6 +73,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "core.wsgi.application"
 ASGI_APPLICATION = "core.asgi.application"
+
+CHANNEL_REDIS_URL = config("CHANNEL_REDIS_URL", default="")
+if CHANNEL_REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [CHANNEL_REDIS_URL],
+            },
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
 
 if config("DB_NAME", default=""):
     DATABASES = {
@@ -153,6 +175,8 @@ RAZORPAY_KEY_ID = config("RAZORPAY_KEY_ID", default="")
 RAZORPAY_KEY_SECRET = config("RAZORPAY_KEY_SECRET", default="")
 RAZORPAY_WEBHOOK_SECRET = config("RAZORPAY_WEBHOOK_SECRET", default="")
 RAZORPAY_API_BASE_URL = config("RAZORPAY_API_BASE_URL", default="https://api.razorpay.com/v1")
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
 
 LOG_LEVEL = config("LOG_LEVEL", default="INFO")
 LOGGING = {

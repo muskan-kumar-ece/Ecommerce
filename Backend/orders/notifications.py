@@ -4,9 +4,10 @@ from django.conf import settings
 from django.core.mail import BadHeaderError
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
+from django.template.loader import render_to_string
 from django.utils import timezone
 
-from .models import EmailEvent, Order
+from .models import Cart, EmailEvent, Order
 
 EMAIL_SUBJECTS = {
     EmailEvent.EmailType.ORDER_CONFIRMED: "Your order is confirmed",
@@ -16,6 +17,7 @@ EMAIL_SUBJECTS = {
     EmailEvent.EmailType.ORDER_CANCELLED: "Your order was cancelled",
     EmailEvent.EmailType.REFUND_PROCESSED: "Your refund has been processed",
 }
+ABANDONED_CART_EMAIL_SUBJECT = "You left items in your cart"
 
 
 def _build_order_email_message(email_type: str, order: Order) -> str:
@@ -75,3 +77,33 @@ def send_order_email(email_type: str, order: Order) -> bool:
         email_event.sent_at = timezone.now()
         email_event.save(update_fields=["status", "sent_at", "updated_at"])
         return True
+
+
+def _build_abandoned_cart_email_message(cart: Cart) -> str:
+    cart_items = cart.items.select_related("product").all()
+    return render_to_string(
+        "orders/emails/abandoned_cart_reminder.txt",
+        {
+            "user_name": cart.user.name or cart.user.email,
+            "cart_items": cart_items,
+            "cart_url": f"{settings.FRONTEND_APP_URL}/cart",
+            "support_email": settings.SUPPORT_EMAIL,
+        },
+    ).strip()
+
+
+def send_abandoned_cart_email(cart: Cart) -> bool:
+    if not cart.user.email:
+        return False
+
+    try:
+        send_mail(
+            subject=ABANDONED_CART_EMAIL_SUBJECT,
+            message=_build_abandoned_cart_email_message(cart),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[cart.user.email],
+            fail_silently=False,
+        )
+    except (SMTPException, BadHeaderError, OSError):
+        return False
+    return True

@@ -1,232 +1,172 @@
-# Ecommerce Repository – Full Implementation Audit Report
+# Ecommerce Implementation Audit (Structured)
 
-Generated from code inspection of `/home/runner/work/Ecommerce/Ecommerce` on 2026-03-06.
+Audit date: 2026-03-07  
+Repository: `muskan-kumar-ece/Ecommerce`
 
-## 1. Backend Implemented Features
+## 1) Backend APIs implemented
 
-### Core backend modules
-- **users**: custom email-based user model, roles (`admin`, `student`), registration, referral ownership codes.
-- **products**: categories, products, product images, inventory records, active/inactive filtering.
-- **orders**: cart/cart items, order/order items, shipping addresses, coupons, coupon usage, order cancellation.
-- **payments**: Razorpay order creation, payment verification, payment retry, refunds, webhook processing.
-- **adminpanel**: admin analytics summary, admin order list/detail, status updates, ship/deliver operations.
-
-### Implemented backend feature categories
-- **Authentication system**
-  - JWT token issue + refresh (`/api/v1/auth/token/`, `/api/v1/auth/token/refresh/`).
-- **Order management**
-  - Order creation with line items (`/api/v1/orders/create/`), user order listing/detail, cancel flow.
-- **Payment system**
-  - Payment intent creation, signature verification, retry, refund lifecycle.
-- **Razorpay integration**
-  - Server-side Razorpay order creation and signature verification for client + webhooks.
-- **Admin APIs**
-  - Analytics summary and order operations under `/admin/...` API routes.
-- **Audit logs**
-  - `OrderEvent`, `EmailEvent`, `PaymentEvent`, `PaymentWebhookEvent`, `ShippingEvent`.
-- **Shipping system**
-  - Admin ship/deliver actions with tracking ID + shipping events.
-- **Email notifications**
-  - Payment/order/shipping/refund mail triggers with event status tracking.
-- **Webhooks**
-  - Razorpay webhook endpoint with signature validation + replay deduplication.
-- **Retry systems**
-  - Payment retry endpoint with hard cap (`MAX_RETRY_ATTEMPTS = 3`).
-
-## 2. Backend Database Models
-
-### users
-- **User**: primary auth entity (UUID id, email login, role, referral owner code).
-- **Referral**: links referrer and referred user, tracks reward issuance.
-
-### products
-- **Category**: product grouping metadata.
-- **Product**: sellable item with SKU, pricing, stock, refurbished condition state.
-- **ProductImage**: image assets per product.
-- **Inventory**: stock, reserved stock, reorder level.
-
-### orders
-- **Cart**: active cart per user (enforced unique active cart).
-- **CartItem**: product quantity in cart.
-- **Order**: order totals, statuses, payment status, coupon linkage, shipping/tracking fields.
-- **OrderItem**: product snapshots per order.
-- **ShippingAddress**: one-to-one shipping address per order.
-- **Coupon**: discount definitions with validity/limits.
-- **CouponUsage**: coupon consumption per order/user.
-- **OrderEvent**: status/payment status transition log.
-- **EmailEvent**: per-order notification send status.
-- **ShippingEvent**: shipment timeline events.
-
-### payments
-- **Payment**: Razorpay-linked payment records and verification state.
-- **PaymentWebhookEvent**: processed webhook idempotency records.
-- **PaymentEvent**: immutable payment audit trail (created/failed/retry/refund/replay/etc.).
-
-## 3. Backend APIs (Grouped by Module)
-
-### auth
-- `POST /api/v1/auth/token/`
+### Authentication APIs
+- `POST /api/v1/auth/token/` (JWT access/refresh pair)
 - `POST /api/v1/auth/token/refresh/`
+- `POST /api/v1/users/register/`
+- `GET /api/v1/users/referral-summary/`
 
-### orders
-- Router resources under `/api/v1/orders/`:
-  - `/` (list/create, detail/update/delete)
-  - `/carts/`
-  - `/cart-items/`
-  - `/items/`
-  - `/shipping-addresses/`
-  - `/coupons/` (admin-only read)
-- Custom order actions:
-  - `POST /api/v1/orders/create/`
-  - `GET /api/v1/orders/my-orders/`
-  - `POST /api/v1/orders/{id}/apply-coupon/`
-  - `POST /api/v1/orders/{id}/cancel/`
+### Product APIs
+- `GET/POST /api/v1/products/`
+- `GET/PATCH/DELETE /api/v1/products/{id}/`
+- `GET/POST /api/v1/products/categories/`
+- `GET/PATCH/DELETE /api/v1/products/categories/{id}/`
+- `GET/POST /api/v1/products/images/`
+- `GET/PATCH/DELETE /api/v1/products/images/{id}/`
+- `GET/POST /api/v1/products/inventory/`
+- `GET/PATCH/DELETE /api/v1/products/inventory/{id}/`
+- `GET /api/v1/products/{product_id}/reviews/`
+- `POST /api/v1/reviews/`
+- `PATCH/DELETE /api/v1/reviews/{id}/`
 
-### payments
+### Cart APIs
+- `GET/POST /api/v1/orders/carts/`
+- `GET/PATCH/DELETE /api/v1/orders/carts/{id}/`
+- `GET/POST /api/v1/orders/cart-items/`
+- `GET/PATCH/DELETE /api/v1/orders/cart-items/{id}/`
+
+### Order APIs
+- `GET/POST /api/v1/orders/`
+- `GET/PATCH/DELETE /api/v1/orders/{id}/`
+- `POST /api/v1/orders/create/`
+- `GET /api/v1/orders/my-orders/`
+- `POST /api/v1/orders/{id}/apply-coupon/`
+- `POST /api/v1/orders/{id}/cancel/`
+- `GET/POST /api/v1/orders/items/`
+- `GET/PATCH/DELETE /api/v1/orders/items/{id}/`
+- `GET/POST /api/v1/orders/shipping-addresses/`
+- `GET/PATCH/DELETE /api/v1/orders/shipping-addresses/{id}/`
+- `GET /api/v1/orders/coupons/` (admin read access)
+
+### Payment APIs
 - `POST /api/v1/payments/create-order/`
 - `POST /api/v1/payments/retry/{order_id}/`
 - `POST /api/v1/payments/verify/`
 - `POST /api/v1/payments/refund/`
 - `POST /api/v1/payments/webhook/`
 
-### admin
+### Admin APIs
 - `GET /admin/analytics/summary/`
 - `GET /admin/orders/`
 - `GET /admin/orders/{order_id}/`
 - `POST /admin/orders/{order_id}/status/`
 - `POST /admin/orders/{order_id}/ship/`
 - `POST /admin/orders/{order_id}/deliver/`
+- Django admin panel: `/admin/`
 
-### shipping
-- User-side shipping address CRUD: `/api/v1/orders/shipping-addresses/`
-- Admin shipping operations:
-  - `POST /admin/orders/{order_id}/ship/`
-  - `POST /admin/orders/{order_id}/deliver/`
+### Analytics APIs
+- `GET /api/v1/admin/analytics/`
+- `GET /admin/analytics/summary/`
 
-### notifications
-- **No dedicated notification API endpoints** are exposed.
-- Notifications are emitted internally through backend services (`orders/notifications.py`) during status/payment transitions.
+---
 
-## 4. Frontend Implemented Pages
+## 2) Endpoint verification: `GET /api/v1/admin/analytics/`
 
-Detected App Router pages:
-- `/` (store home)
-- `/products/[slug]`
-- `/cart`
-- `/checkout`
-- `/order-success`
+**Status: EXISTS and WORKS**
+
+Verified by code and tests:
+- Route exists in `Backend/core/api_urls.py`.
+- View exists in `Backend/orders/views.py` (`AdminAnalyticsView`, protected by `IsAdminUser`).
+- Tests exist and pass in `Backend/orders/tests.py`:
+  - `test_admin_can_access_analytics_metrics`
+  - `test_non_admin_cannot_access_analytics_metrics`
+
+Additionally, this endpoint is consumed by frontend at:
+- `Frontend/lib/api/analytics.ts` (`fetchAdminDashboardAnalytics`)
+- `Frontend/app/(admin)/dashboard/page.tsx` (route `/dashboard`)
+
+---
+
+## 3) ALL admin features currently implemented
+
+### Admin dashboard
+- ✅ Implemented (two dashboard UIs)
+  - `/dashboard` (uses `/api/v1/admin/analytics/`)
+  - `/admin/analytics` (uses `/admin/analytics/summary/`)
+- ⚠️ `/admin` page exists but is placeholder-style metrics UI.
+
+### Product management
+- ✅ Implemented in backend APIs (`/api/v1/products/*`, admin write via `IsAdminOrReadOnly`).
+- ✅ Implemented in Django admin (`Product`, `Category`, `Inventory`, `ProductImage`, `Review` admins).
+- ⚠️ No dedicated Next.js admin product-management page (CRUD UI) under `/admin/*`.
+
+### Order management
+- ✅ Implemented end-to-end:
+  - Admin APIs for list/detail/status/ship/deliver.
+  - Frontend admin pages `/admin/orders`, `/admin/orders/[id]`.
+  - Django admin order controls + bulk actions.
+
+### User management
+- ✅ Implemented in Django admin (`UserAdmin`, `ReferralAdmin`).
+- ⚠️ No dedicated custom REST admin user-management API/Next.js user-management page.
+
+### Analytics
+- ✅ Implemented:
+  - `/api/v1/admin/analytics/`
+  - `/admin/analytics/summary/`
+  - Frontend analytics views at `/dashboard` and `/admin/analytics`.
+
+---
+
+## 4) ALL payment integrations implemented
+
+- ✅ **Razorpay** (backend + frontend checkout integration)
+  - Order creation, verification, retry, refund, webhook handling.
+- ❌ Stripe: not implemented.
+- ❌ PayPal: not implemented.
+
+---
+
+## 5) ALL frontend pages currently available
+
+### Core store/customer pages
+- ✅ Home: `/`
+- ✅ Products: `/products`
+- ✅ Product Details: `/products/[slug]`
+- ✅ Cart: `/cart`
+- ✅ Checkout: `/checkout`
+- ✅ Orders: `/account/orders`, `/account/orders/[orderId]`, `/account/orders/[orderId]/track`
+- ❌ Profile: **no dedicated `/profile` page found**
+
+### Auth/other customer pages
+- `/login`
+- `/register` (currently disabled placeholder UI)
 - `/wishlist`
 - `/referral`
-- `/login`
-- `/register`
-- `/account/orders`
-- `/account/orders/[orderId]`
-- `/account/orders/[orderId]/track`
-- `/admin`
-- `/admin/analytics`
+- `/order-success`
+
+### Admin pages
+- `/admin` (placeholder-style dashboard)
 - `/admin/orders`
 - `/admin/orders/[id]`
+- `/admin/analytics`
+- `/dashboard` (admin analytics dashboard in `(admin)` route group)
 
-Notable implemented component areas:
-- cart drawer and cart context
-- auth provider and query provider
-- wishlist components
-- reviews UI components
-- order timeline UI
+---
 
-## 5. Admin Panel Features
+## 6) Missing features to complete ecommerce platform
 
-### API-backed admin features
-- Revenue/order/refund/referral analytics summary.
-- Order listing with filters (`status`, `date`, `search`).
-- Order detail with timeline and shipping events.
-- Order status updates and optional payment status updates.
-- Ship action: assigns tracking id/provider + creates shipping event.
-- Deliver action: validates shipped state + creates delivered event.
+1. **Dedicated profile page** (`/profile`) with editable customer profile/address/preferences.
+2. **Frontend registration flow** is not active (register page is disabled text-only UI despite backend register API).
+3. **Checkout address persistence** is incomplete (form fields are collected in UI, but order creation currently sends only `items` and does not include shipping address/customer contact fields).
+4. **Customer shipment tracking UX** is placeholder (`/account/orders/[orderId]/track` shows non-integrated timeline text).
+5. **Custom admin product-management UI** (Next.js) is missing; currently handled by backend APIs + Django admin.
+6. **Custom admin user-management UI/API** is missing; currently handled by Django admin only.
+7. **Additional payment gateway options** (Stripe/PayPal) are not integrated.
+8. **Admin dashboard route consistency** (`/admin`, `/admin/analytics`, `/dashboard`) could be unified for cleaner operations UX.
 
-### Django admin features
-- Registered admin models for users, products, inventory, orders, payments, coupons.
-- Custom admin index/dashboard context (date-range metrics + low-stock view).
-- Order bulk actions (mark confirmed/shipped).
+---
 
-## 6. Payment System Status
+## 7) Project completion percentage
 
-### Payment flow (implemented)
-1. Frontend creates order (`/api/v1/orders/create/`).
-2. Frontend requests Razorpay order (`/api/v1/payments/create-order/`) with idempotency key.
-3. Razorpay checkout returns payment identifiers.
-4. Frontend calls `/api/v1/payments/verify/` with signature.
-5. Backend verifies HMAC signature, marks payment captured, updates order/payment statuses, deducts stock, issues referral reward, logs payment event, sends email.
+**Estimated completion: 82%**
 
-### Webhook verification (implemented)
-- `/api/v1/payments/webhook/` validates `X-Razorpay-Signature` using `RAZORPAY_WEBHOOK_SECRET`.
-- Duplicate webhook handling via `PaymentWebhookEvent.event_id` dedup.
-- Controlled state transitions for order payment status from webhook events.
-
-### Retry system (implemented)
-- `POST /api/v1/payments/retry/{order_id}/`
-- Allowed only when `order.payment_status == failed`.
-- Retry count tracked via `PaymentEvent.RETRY_ATTEMPT` and capped at 3.
-
-### Audit logs (implemented)
-- `PaymentEvent` records payment lifecycle and retry/replay/duplicate events.
-- `PaymentWebhookEvent` records processed webhook events.
-
-## 7. Missing or Incomplete Features
-
-- **Frontend reviews API integration appears ahead of backend**:
-  - Frontend calls `/api/v1/products/{productId}/reviews/`, but no backend reviews endpoints/models were found.
-- **Frontend wishlist API integration appears ahead of backend**:
-  - Frontend calls `/api/v1/wishlist/`, but no backend wishlist module/endpoints/models were found.
-- **Track page is placeholder**:
-  - `/account/orders/[orderId]/track` currently shows static “integration will appear here” text.
-- **Checkout address form is not persisted**:
-  - Checkout collects address inputs in UI, but order placement only sends `{ items }`.
-- **Admin dashboard page (`/admin`) is mostly placeholder metrics** despite existing analytics endpoint on `/admin/analytics`.
-
-## 8. Security Observations
-
-### Positive observations
-- JWT authentication is default for DRF (`IsAuthenticated`) and explicit on sensitive endpoints.
-- Admin APIs use `IsAdminUser` permission checks.
-- Razorpay payment verification uses HMAC and `hmac.compare_digest`.
-- Webhook signature verification is implemented and mandatory.
-- Secrets/config loaded from environment via `python-decouple`:
-  - `SECRET_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, email creds, DB creds.
-
-### Risks / gaps observed
-- Frontend middleware admin check uses a POST request to `/api/v1/products/` as a permission probe (unusual coupling).
-- Access token is read from browser localStorage in API interceptor (XSS exposure risk if frontend is compromised).
-- No explicit API throttling/rate-limiting configuration detected in DRF settings.
-
-## 9. Architecture Overview
-
-- **Frontend (Next.js)** communicates with **Backend (Django REST)** over HTTP JSON APIs.
-- API client (`Frontend/lib/api/client.ts`) uses `NEXT_PUBLIC_API_URL` and attaches Bearer token.
-- Backend route composition:
-  - `/api/v1/` for public/app APIs (auth/users/products/orders/payments)
-  - `/admin/...` for custom admin operational APIs
-  - `/admin/` for Django admin HTML
-- Business flows:
-  - Cart/checkout/order creation in frontend -> orders API.
-  - Payment capture via Razorpay checkout + backend verify/webhook endpoints.
-  - Admin operational actions through dedicated admin APIs.
-- Event-style logging entities (order/payment/email/shipping events) provide auditable history.
-
-## 10. Final Project Status
-
-### Classification
-**MVP (approaching Beta-ready for core commerce flows).**
-
-### What is done
-- End-to-end baseline commerce flow exists: auth, products, cart, order create, payment create/verify, retries, refunds.
-- Admin operations exist for analytics and order lifecycle handling.
-- Shipping and notification primitives are present.
-- Audit/event logging is implemented for key payment/order/email transitions.
-
-### What still needs implementation before production-ready
-- Implement backend support for frontend wishlist and product reviews APIs (or remove dead frontend integrations).
-- Complete shipping tracking UX/API integration for dedicated tracking page.
-- Persist checkout address/customer form data into shipping/order records.
-- Harden admin frontend authorization checks and token handling strategy.
-- Add operational hardening (rate limiting, stronger monitoring/alerting, production security reviews).
+### Basis for estimate
+- Core ecommerce backend APIs (auth/products/cart/orders/payments/admin/analytics): **implemented**.
+- Core storefront pages (home/products/details/cart/checkout/orders): **implemented**.
+- Main gaps are in **customer profile + full account UX**, **admin product/user custom UI**, and **some polish/completion tasks** (checkout address persistence, tracking UX, multi-gateway expansion).

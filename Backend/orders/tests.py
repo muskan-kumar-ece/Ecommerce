@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core import mail
 from django.test import TestCase
 from django.test.utils import override_settings
@@ -12,6 +13,7 @@ from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from products.models import Category, Product
 
+from .cart_recovery import send_abandoned_cart_reminders
 from .models import Cart, Coupon, CouponUsage, EmailEvent, Order, OrderEvent, OrderItem, ShippingAddress, ShippingEvent
 from .notifications import send_order_email
 from .views import OrderViewSet
@@ -800,3 +802,82 @@ class OrderNotificationServiceTests(TestCase):
         self.assertIn(f"Order ID: {self.order.id}", mail.outbox[0].body)
         self.assertIn("Notify Product", mail.outbox[0].body)
         self.assertIn("support@example.com", mail.outbox[0].body)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="no-reply@example.com",
+    SUPPORT_EMAIL="support@example.com",
+    FRONTEND_APP_URL="http://localhost:3000",
+)
+class AbandonedCartRecoveryTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="cart-user@example.com",
+            password="StrongPass123",
+            name="Cart User",
+        )
+        self.category = Category.objects.create(name="Cart Category")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Cart Product",
+            description="Cart reminder test product",
+            price=Decimal("1200.00"),
+            sku="CRT-001",
+            stock_quantity=50,
+        )
+        self.cart = Cart.objects.create(user=self.user)
+        self.cart.items.create(product=self.product, quantity=2)
+
+    def _set_cart_inactive_for_hours(self, hours):
+        stale_time = timezone.now() - timedelta(hours=hours)
+        Cart.objects.filter(pk=self.cart.pk).update(updated_at=stale_time)
+        self.cart.refresh_from_db()
+
+    def test_send_abandoned_cart_reminders_sends_for_stale_cart_with_products(self):
+        self._set_cart_inactive_for_hours(3)
+
+        sent_count = send_abandoned_cart_reminders()
+
+        self.assertEqual(sent_count, 1)
+        self.assertEqual(len(mail.outbox), 1)
+        email_body = mail.outbox[0].body
+        self.assertIn("Cart Product x 2", email_body)
+        self.assertIn("http://localhost:3000/cart", email_body)
+        self.assertIn("support@example.com", email_body)
+        self.cart.refresh_from_db()
+        self.assertIsNotNone(self.cart.abandoned_cart_reminder_sent_at)
+
+    def test_send_abandoned_cart_reminders_skips_recent_cart(self):
+        self._set_cart_inactive_for_hours(1)
+
+        sent_count = send_abandoned_cart_reminders()
+
+        self.assertEqual(sent_count, 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_send_abandoned_cart_reminders_does_not_repeat_without_cart_update(self):
+        self._set_cart_inactive_for_hours(3)
+
+        first_sent = send_abandoned_cart_reminders()
+        second_sent = send_abandoned_cart_reminders()
+
+        self.assertEqual(first_sent, 1)
+        self.assertEqual(second_sent, 0)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_cart_updated_at_is_touched_when_cart_item_changes(self):
+        original_updated_at = self.cart.updated_at
+        cart_item = self.cart.items.get(product=self.product)
+        cart_item.quantity = 3
+        cart_item.save(update_fields=["quantity"])
+        self.cart.refresh_from_db()
+
+        self.assertGreater(self.cart.updated_at, original_updated_at)
+
+    def test_management_command_sends_reminder_emails(self):
+        self._set_cart_inactive_for_hours(3)
+
+        call_command("send_abandoned_cart_reminders")
+
+        self.assertEqual(len(mail.outbox), 1)
