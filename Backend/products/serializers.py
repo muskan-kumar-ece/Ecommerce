@@ -78,6 +78,36 @@ class ProductSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
+class ProductSearchResultSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    relevance_score = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "name",
+            "slug",
+            "price",
+            "category_name",
+            "relevance_score",
+        )
+        read_only_fields = fields
+
+
+class ProductSuggestionSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "name",
+            "category_name",
+        )
+        read_only_fields = fields
+
+
 class ReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.name", read_only=True)
     is_mine = serializers.SerializerMethodField(read_only=True)

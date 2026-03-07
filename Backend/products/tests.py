@@ -157,6 +157,73 @@ class ProductSearchFilterPaginationTests(TestCase):
         self.assertIn("previous", response.data)
 
 
+class AdvancedProductSearchAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.electronics = Category.objects.create(name="Electronics")
+        self.appliances = Category.objects.create(name="Appliances")
+
+        self.laptop = Product.objects.create(
+            category=self.electronics,
+            name="Gaming Laptop",
+            description="High performance laptop",
+            price=Decimal("4500.00"),
+            sku="LAP-4500",
+            stock_quantity=5,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+        self.phone = Product.objects.create(
+            category=self.electronics,
+            name="Smartphone",
+            description="Affordable device",
+            price=Decimal("2500.00"),
+            sku="PHN-2500",
+            stock_quantity=7,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+        self.fridge = Product.objects.create(
+            category=self.appliances,
+            name="Mini Fridge",
+            description="Compact refrigerator",
+            price=Decimal("5000.00"),
+            sku="FRG-5000",
+            stock_quantity=3,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+
+    def test_search_by_product_name_returns_ranked_results(self):
+        response = self.client.get("/api/v1/search?q=laptop")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["id"], self.laptop.id)
+        self.assertIn("relevance_score", response.data["results"][0])
+
+    def test_search_by_category(self):
+        response = self.client.get("/api/v1/search?q=electronics")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {item["id"] for item in response.data["results"]}
+        self.assertIn(self.laptop.id, result_ids)
+        self.assertIn(self.phone.id, result_ids)
+
+    def test_search_supports_typo_tolerance(self):
+        response = self.client.get("/api/v1/search?q=laptpo")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {item["id"] for item in response.data["results"]}
+        self.assertIn(self.laptop.id, result_ids)
+
+    def test_search_suggestions(self):
+        response = self.client.get("/api/v1/search/suggestions?q=lap")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], self.laptop.id)
+
+
 class ProductReviewAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()

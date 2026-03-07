@@ -1,16 +1,28 @@
+from difflib import SequenceMatcher
+
 from django.db.models import Avg, Count, Value
 from django.db.models.functions import Coalesce
 from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, permissions, viewsets
+from rest_framework.generics import GenericAPIView
 from rest_framework.generics import ListAPIView
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 
 from .models import Category, Inventory, Product, ProductImage, Review
 from .permissions import IsAdminOrReadOnly
-from .serializers import CategorySerializer, InventorySerializer, ProductImageSerializer, ProductSerializer, ReviewSerializer
+from .serializers import (
+    CategorySerializer,
+    InventorySerializer,
+    ProductImageSerializer,
+    ProductSearchResultSerializer,
+    ProductSerializer,
+    ProductSuggestionSerializer,
+    ReviewSerializer,
+)
 
 
 class ReviewPagination(PageNumberPagination):
@@ -112,3 +124,87 @@ class ReviewViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, mixins.Des
         if serializer.instance.user_id != self.request.user.id:
             raise PermissionDenied("You can only edit your own review.")
         serializer.save()
+
+
+class ProductSearchView(GenericAPIView):
+    serializer_class = ProductSearchResultSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = ProductPagination
+
+    @staticmethod
+    def _max_similarity(query, text):
+        query = query.lower()
+        text = text.lower()
+        candidates = [text] + text.split()
+        return max(SequenceMatcher(None, query, candidate).ratio() for candidate in candidates if candidate)
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip().lower()
+        if not query:
+            return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+        products = Product.objects.select_related("category").filter(is_active=True)
+        ranked = []
+        for product in products:
+            name = product.name.lower()
+            category_name = product.category.name.lower()
+            score = 0.0
+
+            if query in name:
+                score += 10.0
+            if query in category_name:
+                score += 8.0
+
+            score += self._max_similarity(query, name) * 6.0
+            score += self._max_similarity(query, category_name) * 4.0
+
+            if score >= 5.0:
+                product.relevance_score = round(score, 3)
+                ranked.append(product)
+
+        ranked.sort(key=lambda p: (-p.relevance_score, p.id))
+        page = self.paginate_queryset(ranked)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+class ProductSearchSuggestionsView(GenericAPIView):
+    serializer_class = ProductSuggestionSerializer
+    permission_classes = [permissions.AllowAny]
+
+    @staticmethod
+    def _suggestion_score(query, product):
+        query = query.lower()
+        name = product.name.lower()
+        category_name = product.category.name.lower()
+        score = 0.0
+
+        if name.startswith(query):
+            score += 12.0
+        if category_name.startswith(query):
+            score += 6.0
+        if query in name:
+            score += 8.0
+        if query in category_name:
+            score += 4.0
+
+        score += SequenceMatcher(None, query, name).ratio() * 5.0
+        score += SequenceMatcher(None, query, category_name).ratio() * 3.0
+        return score
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip().lower()
+        if not query:
+            return Response([])
+
+        products = Product.objects.select_related("category").filter(is_active=True)
+        scored = []
+        for product in products:
+            score = self._suggestion_score(query, product)
+            if score >= 2.5:
+                scored.append((score, product))
+
+        scored.sort(key=lambda item: (-item[0], item[1].id))
+        top_products = [item[1] for item in scored[:10]]
+        serializer = self.get_serializer(top_products, many=True)
+        return Response(serializer.data)
