@@ -153,7 +153,7 @@ Additionally, this endpoint is consumed by frontend at:
 
 1. **Dedicated profile page** (`/profile`) with editable customer profile/address/preferences.
 2. **Frontend registration flow** is not active (register page is disabled text-only UI despite backend register API).
-3. **Checkout address persistence** is incomplete (form fields are collected but order creation currently sends item payload only).
+3. **Checkout address persistence** is incomplete (form fields are collected in UI, but order creation currently sends only `items` and does not include shipping address/customer contact fields).
 4. **Customer shipment tracking UX** is placeholder (`/account/orders/[orderId]/track` shows non-integrated timeline text).
 5. **Custom admin product-management UI** (Next.js) is missing; currently handled by backend APIs + Django admin.
 6. **Custom admin user-management UI/API** is missing; currently handled by Django admin only.
@@ -170,4 +170,3 @@ Additionally, this endpoint is consumed by frontend at:
 - Core ecommerce backend APIs (auth/products/cart/orders/payments/admin/analytics): **implemented**.
 - Core storefront pages (home/products/details/cart/checkout/orders): **implemented**.
 - Main gaps are in **customer profile + full account UX**, **admin product/user custom UI**, and **some polish/completion tasks** (checkout address persistence, tracking UX, multi-gateway expansion).
-
