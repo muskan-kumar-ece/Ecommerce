@@ -37,6 +37,7 @@ LOCAL_APPS = [
     "apps.recommendations",
     "apps.chatbot",
     "apps.price_watch",
+    "vendors",
     "adminpanel",
 ]
 

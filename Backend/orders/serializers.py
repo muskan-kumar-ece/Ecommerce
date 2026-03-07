@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from products.models import Product
+from vendors.services import create_vendor_orders_for_order
 from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress, ShippingEvent
 
 
@@ -143,6 +144,7 @@ class CreateOrderSerializer(serializers.Serializer):
             for item in order_items_data
         ]
         OrderItem.objects.bulk_create(order_items)
+        create_vendor_orders_for_order(order)
 
         return order
 
