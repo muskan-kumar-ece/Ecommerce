@@ -1,10 +1,13 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
+from django.db.models.functions import Coalesce
 from rest_framework import decorators
 from rest_framework import permissions, viewsets
+from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
@@ -227,3 +230,49 @@ class CouponViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CouponSerializer
     permission_classes = [permissions.IsAdminUser]
     queryset = Coupon.objects.all()
+
+
+class AdminAnalyticsView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        total_orders = Order.objects.count()
+        total_revenue = (
+            Order.objects.filter(payment_status=Order.PaymentStatus.PAID).aggregate(
+                total=Coalesce(Sum("total_amount"), Decimal("0.00"))
+            )["total"]
+        )
+        total_users = get_user_model().objects.count()
+        top_products = list(
+            OrderItem.objects.filter(order__payment_status=Order.PaymentStatus.PAID)
+            .values("product_id", "product__name")
+            .annotate(total_sold=Coalesce(Sum("quantity"), 0))
+            .order_by("-total_sold", "product_id")[:5]
+        )
+        recent_orders = [
+            {
+                "order_id": order.id,
+                "user_email": order.user.email,
+                "total_amount": str(order.total_amount),
+                "status": order.status,
+                "created_at": order.created_at.isoformat(),
+            }
+            for order in Order.objects.select_related("user").order_by("-created_at")[:10]
+        ]
+
+        return Response(
+            {
+                "total_orders": total_orders,
+                "total_revenue": f"{total_revenue:.2f}",
+                "total_users": total_users,
+                "top_products": [
+                    {
+                        "product_id": row["product_id"],
+                        "name": row["product__name"],
+                        "total_sold": row["total_sold"],
+                    }
+                    for row in top_products
+                ],
+                "recent_orders": recent_orders,
+            }
+        )
