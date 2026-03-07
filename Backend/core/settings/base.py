@@ -31,6 +31,7 @@ LOCAL_APPS = [
     "products",
     "orders",
     "payments",
+    "apps.wishlist",
     "adminpanel",
 ]
 

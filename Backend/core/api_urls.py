@@ -9,4 +9,5 @@ urlpatterns = [
     path("reviews/", include("products.review_urls")),
     path("orders/", include("orders.urls")),
     path("payments/", include("payments.urls")),
+    path("wishlist/", include("apps.wishlist.urls")),
 ]
