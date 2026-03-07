@@ -55,8 +55,106 @@ class ProductAPITests(TestCase):
         client = APIClient()
         response = client.get("/api/v1/products/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["name"], "Active Phone")
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["name"], "Active Phone")
+
+
+class ProductSearchFilterPaginationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.electronics = Category.objects.create(name="Electronics")
+        self.appliances = Category.objects.create(name="Appliances")
+
+        self.laptop = Product.objects.create(
+            category=self.electronics,
+            name="Gaming Laptop",
+            description="High performance laptop",
+            price=Decimal("4500.00"),
+            sku="LAP-4500",
+            stock_quantity=5,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+        self.phone = Product.objects.create(
+            category=self.electronics,
+            name="Smartphone",
+            description="Affordable device",
+            price=Decimal("2500.00"),
+            sku="PHN-2500",
+            stock_quantity=0,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+        self.fridge = Product.objects.create(
+            category=self.appliances,
+            name="Mini Fridge",
+            description="Compact refrigerator",
+            price=Decimal("5000.00"),
+            sku="FRG-5000",
+            stock_quantity=3,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+
+    def test_search_filter_on_name_description_and_sku(self):
+        by_name = self.client.get("/api/v1/products/?search=laptop")
+        self.assertEqual(by_name.status_code, status.HTTP_200_OK)
+        self.assertEqual(by_name.data["count"], 1)
+        self.assertEqual(by_name.data["results"][0]["id"], self.laptop.id)
+
+        by_sku = self.client.get("/api/v1/products/?search=FRG-5000")
+        self.assertEqual(by_sku.status_code, status.HTTP_200_OK)
+        self.assertEqual(by_sku.data["count"], 1)
+        self.assertEqual(by_sku.data["results"][0]["id"], self.fridge.id)
+
+    def test_category_and_price_filters(self):
+        category_response = self.client.get("/api/v1/products/?category=electronics")
+        self.assertEqual(category_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(category_response.data["count"], 2)
+
+        min_price_response = self.client.get("/api/v1/products/?min_price=3000")
+        self.assertEqual(min_price_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(min_price_response.data["count"], 2)
+
+        max_price_response = self.client.get("/api/v1/products/?max_price=3000")
+        self.assertEqual(max_price_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(max_price_response.data["count"], 1)
+        self.assertEqual(max_price_response.data["results"][0]["id"], self.phone.id)
+
+    def test_in_stock_and_ordering_filters(self):
+        in_stock_response = self.client.get("/api/v1/products/?in_stock=true")
+        self.assertEqual(in_stock_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(in_stock_response.data["count"], 2)
+
+        ordering_response = self.client.get("/api/v1/products/?ordering=price")
+        self.assertEqual(ordering_response.status_code, status.HTTP_200_OK)
+        prices = [Decimal(item["price"]) for item in ordering_response.data["results"]]
+        self.assertEqual(prices, sorted(prices))
+
+    def test_products_list_is_paginated(self):
+        for index in range(21):
+            Product.objects.create(
+                category=self.electronics,
+                name=f"Extra Product {index}",
+                description="Extra item",
+                price=Decimal("1000.00"),
+                sku=f"EXTRA-{index}",
+                stock_quantity=1,
+                is_refurbished=False,
+                condition_grade="A",
+                is_active=True,
+            )
+
+        response = self.client.get("/api/v1/products/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 24)
+        self.assertEqual(len(response.data["results"]), 20)
+        self.assertIn("next", response.data)
+        self.assertIn("previous", response.data)
 
 
 class ProductReviewAPITests(TestCase):
@@ -215,5 +313,5 @@ class ProductReviewAPITests(TestCase):
         self.client.force_authenticate(user=None)
         response = self.client.get("/api/v1/products/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["reviews_count"], 2)
-        self.assertEqual(response.data[0]["average_rating"], 4.0)
+        self.assertEqual(response.data["results"][0]["reviews_count"], 2)
+        self.assertEqual(response.data["results"][0]["average_rating"], 4.0)
