@@ -501,6 +501,96 @@ class CouponAPITests(TestCase):
         self.assertIn("not eligible", str(response.data))
 
 
+class AdminAnalyticsAPITests(TestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin-analytics@example.com",
+            password="StrongPass123",
+            name="Admin Analytics",
+            is_staff=True,
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email="regular-analytics@example.com",
+            password="StrongPass123",
+            name="Regular Analytics",
+        )
+        self.other_user = get_user_model().objects.create_user(
+            email="other-analytics@example.com",
+            password="StrongPass123",
+            name="Other Analytics",
+        )
+        self.client = APIClient()
+        self.category = Category.objects.create(name="Analytics Category")
+        self.product_a = Product.objects.create(
+            category=self.category,
+            name="Product A",
+            description="A",
+            price=Decimal("100.00"),
+            sku="AN-A",
+            stock_quantity=10,
+        )
+        self.product_b = Product.objects.create(
+            category=self.category,
+            name="Product B",
+            description="B",
+            price=Decimal("200.00"),
+            sku="AN-B",
+            stock_quantity=10,
+        )
+
+    def test_admin_can_access_analytics_metrics(self):
+        paid_order = Order.objects.create(
+            user=self.regular_user,
+            total_amount=Decimal("300.00"),
+            payment_status=Order.PaymentStatus.PAID,
+            status=Order.Status.CONFIRMED,
+        )
+        recent_paid_order = Order.objects.create(
+            user=self.other_user,
+            total_amount=Decimal("500.00"),
+            payment_status=Order.PaymentStatus.PAID,
+            status=Order.Status.SHIPPED,
+        )
+        pending_order = Order.objects.create(
+            user=self.regular_user,
+            total_amount=Decimal("100.00"),
+            payment_status=Order.PaymentStatus.PENDING,
+            status=Order.Status.PENDING,
+        )
+        Order.objects.filter(id=paid_order.id).update(created_at=timezone.now() - timedelta(days=3))
+        Order.objects.filter(id=recent_paid_order.id).update(created_at=timezone.now() - timedelta(days=1))
+        Order.objects.filter(id=pending_order.id).update(created_at=timezone.now() - timedelta(days=2))
+        paid_order.refresh_from_db()
+        recent_paid_order.refresh_from_db()
+
+        OrderItem.objects.create(order=paid_order, product=self.product_a, quantity=2, price=self.product_a.price)
+        OrderItem.objects.create(order=recent_paid_order, product=self.product_a, quantity=1, price=self.product_a.price)
+        OrderItem.objects.create(order=recent_paid_order, product=self.product_b, quantity=5, price=self.product_b.price)
+        OrderItem.objects.create(order=pending_order, product=self.product_a, quantity=7, price=self.product_a.price)
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get("/api/v1/admin/analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_orders"], 3)
+        self.assertEqual(response.data["total_revenue"], "800.00")
+        self.assertEqual(response.data["total_users"], 3)
+        self.assertEqual(response.data["top_products"], [
+            {"product_id": self.product_b.id, "name": self.product_b.name, "total_sold": 5},
+            {"product_id": self.product_a.id, "name": self.product_a.name, "total_sold": 3},
+        ])
+        self.assertEqual(len(response.data["recent_orders"]), 3)
+        self.assertEqual(response.data["recent_orders"][0]["order_id"], recent_paid_order.id)
+        self.assertEqual(response.data["recent_orders"][0]["user_email"], self.other_user.email)
+        self.assertIn("created_at", response.data["recent_orders"][0])
+
+    def test_non_admin_cannot_access_analytics_metrics(self):
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get("/api/v1/admin/analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class AdminOrderManagementAPITests(TestCase):
     def setUp(self):
         self.admin_user = get_user_model().objects.create_user(
