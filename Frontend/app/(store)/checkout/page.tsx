@@ -166,7 +166,9 @@ function CheckoutContent() {
             router.push(`/order-success?order_id=${order.id}`);
           } catch (verifyError) {
             console.error("Payment verification failed:", verifyError);
-            setError(`Payment verification failed for order #${order.id}. Please contact support if amount was debited.`);
+            setError(
+              `Payment may have been processed, but verification failed for order #${order.id}. Please do not retry payment and contact support if amount was debited.`,
+            );
             setIsPlacingOrder(false);
           }
         },

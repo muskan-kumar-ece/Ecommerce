@@ -19,7 +19,7 @@ export default function OrderSuccessPage({ searchParams }: OrderSuccessPageProps
   const orderNumber = orderPattern.test(requestedOrder)
     ? requestedOrder
     : /^\d+$/.test(requestedOrder)
-      ? `VN-${requestedOrder.padStart(5, "0").slice(-5)}`
+      ? `VN-${requestedOrder.padStart(5, "0")}`
     : `VN-${randomInt(0, 100000).toString().padStart(5, "0")}`;
 
   return (
