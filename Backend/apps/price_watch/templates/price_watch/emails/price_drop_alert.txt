@@ -1,0 +1,10 @@
+Hi {{ user_name }},
+
+Great news! The price for "{{ product_name }}" has dropped.
+
+Previous price: ₹{{ old_price }}
+Current price: ₹{{ new_price }}
+
+View product: {{ product_url }}
+
+If you have any questions, contact us at {{ support_email }}.

@@ -20,4 +20,5 @@ urlpatterns = [
     path("payments/", include("payments.urls")),
     path("wishlist/", include("apps.wishlist.urls")),
     path("chatbot/", include("apps.chatbot.urls")),
+    path("price-watch/", include("apps.price_watch.urls")),
 ]
