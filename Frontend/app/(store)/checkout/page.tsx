@@ -9,16 +9,64 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createOrder } from "@/lib/api/orders";
+import { createRazorpayOrder, verifyRazorpayPayment } from "@/lib/api/payments";
 
 const inrFormatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 const formatCurrencyNumber = (value: number) => inrFormatter.format(value);
-const toCurrency = (price: string) => {
-  const sanitized = price.replace(/[^0-9.]/g, "");
-  if ((sanitized.match(/\./g) || []).length > 1) {
-    return formatCurrencyNumber(0);
+
+type RazorpaySuccessPayload = {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayFailurePayload = {
+  error?: {
+    description?: string;
+  };
+};
+
+type RazorpayCheckoutOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  order_id: string;
+  name: string;
+  description: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+  };
+  modal?: {
+    ondismiss?: () => void;
+  };
+  handler: (response: RazorpaySuccessPayload) => void | Promise<void>;
+};
+
+type RazorpayCheckoutInstance = {
+  open: () => void;
+  on: (event: "payment.failed", handler: (response: RazorpayFailurePayload) => void) => void;
+};
+
+const loadRazorpayScript = async () => {
+  if (typeof window === "undefined") {
+    return false;
   }
-  const value = Number(sanitized);
-  return formatCurrencyNumber(Number.isFinite(value) ? value : 0);
+  const razorpayWindow = window as Window & {
+    Razorpay?: new (options: RazorpayCheckoutOptions) => RazorpayCheckoutInstance;
+  };
+  if (razorpayWindow.Razorpay) {
+    return true;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 };
 
 function CheckoutContent() {
@@ -26,6 +74,8 @@ function CheckoutContent() {
   const router = useRouter();
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
 
   if (cartItems.length === 0) {
     return (
@@ -46,6 +96,13 @@ function CheckoutContent() {
   }
 
   const handlePlaceOrder = async () => {
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedName || !trimmedEmail) {
+      setError("Please provide your name and email to continue with payment.");
+      return;
+    }
+
     try {
       setIsPlacingOrder(true);
       setError(null);
@@ -66,11 +123,66 @@ function CheckoutContent() {
       // Call the createOrder API
       const order = await createOrder(items);
 
-      // Redirect to order success page
-      router.push(`/order-success?order=${order.id}`);
+      const scriptLoaded = await loadRazorpayScript();
+      const Razorpay = (window as Window & {
+        Razorpay?: new (options: RazorpayCheckoutOptions) => RazorpayCheckoutInstance;
+      }).Razorpay;
+      if (!scriptLoaded || !Razorpay) {
+        setError("Unable to load payment gateway. Please try again.");
+        setIsPlacingOrder(false);
+        return;
+      }
+
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `checkout-${order.id}-${Date.now()}`;
+      const paymentSession = await createRazorpayOrder({
+        order_id: order.id,
+        idempotency_key: idempotencyKey,
+      });
+
+      const checkout = new Razorpay({
+        key: paymentSession.key_id,
+        amount: paymentSession.amount,
+        currency: paymentSession.currency,
+        order_id: paymentSession.razorpay_order_id,
+        name: "Venopai Commerce",
+        description: `Payment for order #${order.id}`,
+        prefill: {
+          name: trimmedName,
+          email: trimmedEmail,
+        },
+        modal: {
+          ondismiss: () => {
+            setError("Payment was cancelled. You can retry checkout.");
+            setIsPlacingOrder(false);
+          },
+        },
+        handler: async (response) => {
+          try {
+            await verifyRazorpayPayment({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            router.push(`/order-success?order_id=${order.id}`);
+          } catch (verifyError) {
+            console.error("Payment verification failed:", verifyError);
+            setError("Payment verification failed. Please contact support if amount was debited.");
+            setIsPlacingOrder(false);
+          }
+        },
+      });
+
+      checkout.on("payment.failed", (response) => {
+        setError(response.error?.description ?? "Payment failed. Please try again.");
+        setIsPlacingOrder(false);
+      });
+      checkout.open();
     } catch (err) {
       console.error("Failed to place order:", err);
-      setError("Failed to place order. Please try again.");
+      setError("Checkout failed. Please try again.");
       setIsPlacingOrder(false);
     }
   };
@@ -93,13 +205,13 @@ function CheckoutContent() {
               <label htmlFor="fullName" className="mb-1.5 block text-sm text-neutral-700 dark:text-neutral-300">
                 Full Name
               </label>
-              <Input id="fullName" placeholder="John Doe" />
+              <Input id="fullName" placeholder="John Doe" value={fullName} onChange={(event) => setFullName(event.target.value)} />
             </div>
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm text-neutral-700 dark:text-neutral-300">
                 Email
               </label>
-              <Input id="email" type="email" placeholder="john@example.com" />
+              <Input id="email" type="email" placeholder="john@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
             </div>
             <div>
               <label htmlFor="phone" className="mb-1.5 block text-sm text-neutral-700 dark:text-neutral-300">
@@ -185,7 +297,7 @@ function CheckoutContent() {
                 onClick={handlePlaceOrder}
                 disabled={isPlacingOrder}
               >
-                {isPlacingOrder ? "Placing Order..." : "Place Order"}
+                {isPlacingOrder ? "Processing Payment..." : "Pay with Razorpay"}
               </Button>
             </div>
           </CardContent>
