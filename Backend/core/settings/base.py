@@ -25,6 +25,7 @@ THIRD_PARTY_APPS = [
     "django_filters",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "channels",
 ]
 
 LOCAL_APPS = [
@@ -69,6 +70,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "core.wsgi.application"
 ASGI_APPLICATION = "core.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 if config("DB_NAME", default=""):
     DATABASES = {
