@@ -1,0 +1,11 @@
+Hi {{ user_name }},
+
+You left items in your cart and they're still waiting for you:
+
+{% for item in cart_items %}- {{ item.product.name }} x {{ item.quantity }} @ ₹{{ item.product.price }}
+{% empty %}- No items found
+{% endfor %}
+
+Complete your order here: {{ cart_url }}
+
+Need help? Contact us at {{ support_email }}.
