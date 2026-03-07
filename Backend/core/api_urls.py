@@ -19,4 +19,5 @@ urlpatterns = [
     path("orders/", include("orders.urls")),
     path("payments/", include("payments.urls")),
     path("wishlist/", include("apps.wishlist.urls")),
+    path("chatbot/", include("apps.chatbot.urls")),
 ]

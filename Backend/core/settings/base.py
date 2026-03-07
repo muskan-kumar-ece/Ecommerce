@@ -35,6 +35,7 @@ LOCAL_APPS = [
     "payments",
     "apps.wishlist",
     "apps.recommendations",
+    "apps.chatbot",
     "adminpanel",
 ]
 
@@ -172,6 +173,8 @@ RAZORPAY_KEY_ID = config("RAZORPAY_KEY_ID", default="")
 RAZORPAY_KEY_SECRET = config("RAZORPAY_KEY_SECRET", default="")
 RAZORPAY_WEBHOOK_SECRET = config("RAZORPAY_WEBHOOK_SECRET", default="")
 RAZORPAY_API_BASE_URL = config("RAZORPAY_API_BASE_URL", default="https://api.razorpay.com/v1")
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
 
 LOG_LEVEL = config("LOG_LEVEL", default="INFO")
 LOGGING = {
