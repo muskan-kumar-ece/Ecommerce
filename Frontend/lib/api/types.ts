@@ -22,6 +22,19 @@ export type Product = {
   updated_at: string;
 };
 
+export type Category = {
+  id: number;
+  name: string;
+  slug: string;
+};
+
+export type PaginatedResponse<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
+
 export type ProductReview = {
   id: number;
   product: number;
