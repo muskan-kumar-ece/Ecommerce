@@ -1,8 +1,9 @@
+import json
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -66,6 +67,17 @@ class ChatbotAPITests(TestCase):
         self.assertIn("order", response.data["response"].lower())
         self.assertIn("shipped", response.data["response"].lower())
 
+    def test_refund_message_detects_refund_intent(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            "/api/v1/chatbot/message",
+            {"message": f"I need a refund for order #{self.order.id}"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["intent"], "refund")
+        self.assertIn(str(self.order.id), response.data["response"])
+
     @patch("apps.chatbot.services.get_user_recommendations")
     def test_product_suggestion_message_returns_suggestions(self, mock_recommendations):
         mock_recommendations.return_value = [self.product]
@@ -79,3 +91,30 @@ class ChatbotAPITests(TestCase):
         self.assertEqual(response.data["intent"], "product_suggestions")
         self.assertEqual(len(response.data["suggestions"]), 1)
         self.assertEqual(response.data["suggestions"][0]["id"], self.product.id)
+
+    @override_settings(OPENAI_API_KEY="test-key")
+    @patch("apps.chatbot.services.request.urlopen")
+    def test_openai_response_is_used_when_available(self, mock_urlopen):
+        class MockHTTPResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {"choices": [{"message": {"content": "AI generated answer about your order."}}]}
+                ).encode("utf-8")
+
+        mock_urlopen.return_value = MockHTTPResponse()
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            "/api/v1/chatbot/message",
+            {"message": f"Track my order #{self.order.id}"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["intent"], "order_status")
+        self.assertEqual(response.data["response"], "AI generated answer about your order.")

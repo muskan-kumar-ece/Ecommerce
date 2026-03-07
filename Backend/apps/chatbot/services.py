@@ -11,6 +11,19 @@ from orders.models import Order
 logger = logging.getLogger(__name__)
 
 ORDER_ID_PATTERN = re.compile(r"(?:order(?:\s+id)?\s*[#:]?\s*)(\d+)", re.IGNORECASE)
+ORDER_STATUS_INTENT_PATTERN = re.compile(
+    r"\b(order status|status of (?:my )?order|track (?:my )?order|where(?:'s| is) (?:my )?order)\b",
+    re.IGNORECASE,
+)
+REFUND_INTENT_PATTERN = re.compile(
+    r"\b(refund|return|money back|get my money back|cancel order)\b",
+    re.IGNORECASE,
+)
+PRODUCT_SUGGESTION_INTENT_PATTERN = re.compile(
+    r"\brecommend(?:\s+me)?\b|\bsuggest(?:ion|ions|ed|ing)?\b.*\bproduct[s]?\b",
+    re.IGNORECASE,
+)
+NEGATIVE_SUGGESTION_PATTERN = re.compile(r"\b(don[' ]?t|no|stop)\s+(recommend|suggest)(?:ing|ions?)?\b", re.IGNORECASE)
 
 
 def extract_order_id(message):
@@ -128,7 +141,7 @@ def _call_openai_response(user_message, intent, order_details, suggestions):
         method="POST",
     )
     try:
-        with request.urlopen(http_request, timeout=10) as response:
+        with request.urlopen(http_request, timeout=5) as response:
             data = json.loads(response.read().decode("utf-8"))
     except (error.URLError, error.HTTPError, TimeoutError, ValueError) as exc:
         logger.warning("OpenAI chatbot request failed: %s", exc)
@@ -150,14 +163,19 @@ def build_chatbot_response(user, message):
     order = None
     requested_order_id = None
     suggestions = []
+    has_order_status_intent = bool(ORDER_STATUS_INTENT_PATTERN.search(normalized_message))
+    has_refund_intent = bool(REFUND_INTENT_PATTERN.search(normalized_message))
+    has_product_suggestion_intent = bool(PRODUCT_SUGGESTION_INTENT_PATTERN.search(normalized_message))
+    if NEGATIVE_SUGGESTION_PATTERN.search(normalized_message):
+        has_product_suggestion_intent = False
 
-    if "order status" in normalized_message:
-        intent = "order_status"
-        order, requested_order_id = _get_order_context(user, message)
-    elif "refund" in normalized_message:
+    if has_refund_intent:
         intent = "refund"
         order, requested_order_id = _get_order_context(user, message)
-    elif "suggest products" in normalized_message or "recommend" in normalized_message:
+    elif has_order_status_intent:
+        intent = "order_status"
+        order, requested_order_id = _get_order_context(user, message)
+    elif has_product_suggestion_intent:
         intent = "product_suggestions"
         suggestions = _format_suggestions(get_user_recommendations(user.id))
 
