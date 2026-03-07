@@ -14,6 +14,7 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
   currency: "INR",
   maximumFractionDigits: 2,
 });
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function ProductsPage() {
   const [searchInput, setSearchInput] = useState("");
@@ -28,7 +29,7 @@ export default function ProductsPage() {
     const timer = window.setTimeout(() => {
       setSearch(searchInput.trim());
       setPage(1);
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
