@@ -21,7 +21,6 @@ class WishlistView(APIView):
         create_serializer.is_valid(raise_exception=True)
         product = create_serializer.validated_data['product']
         wishlist_item, created = Wishlist.objects.get_or_create(user=request.user, product=product)
-        wishlist_item = Wishlist.objects.select_related('product').prefetch_related('product__images').get(id=wishlist_item.id)
         response_serializer = WishlistItemSerializer(wishlist_item)
         return Response(
             response_serializer.data,

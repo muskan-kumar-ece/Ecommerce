@@ -5,6 +5,14 @@ from products.models import Product
 from .models import Wishlist
 
 
+def get_product_image_url(product):
+    primary_image = product.images.filter(is_primary=True).first()
+    if primary_image:
+        return primary_image.image_url
+    fallback_image = product.images.first()
+    return fallback_image.image_url if fallback_image else None
+
+
 class WishlistProductSerializer(serializers.ModelSerializer):
     image = serializers.SerializerMethodField()
 
@@ -13,11 +21,7 @@ class WishlistProductSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'price', 'image', 'slug')
 
     def get_image(self, obj):
-        primary_image = obj.images.filter(is_primary=True).first()
-        if primary_image:
-            return primary_image.image_url
-        fallback_image = obj.images.first()
-        return fallback_image.image_url if fallback_image else None
+        return get_product_image_url(obj)
 
 
 class WishlistItemSerializer(serializers.ModelSerializer):
@@ -40,11 +44,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_image_url(self, obj):
-        primary_image = obj.product.images.filter(is_primary=True).first()
-        if primary_image:
-            return primary_image.image_url
-        fallback_image = obj.product.images.first()
-        return fallback_image.image_url if fallback_image else None
+        return get_product_image_url(obj.product)
 
 
 class WishlistCreateSerializer(serializers.Serializer):
