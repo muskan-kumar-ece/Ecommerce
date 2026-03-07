@@ -8,15 +8,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 type OrderSuccessPageProps = {
   searchParams?: {
     order?: string;
+    order_id?: string;
   };
 };
 
 const orderPattern = /^VN-\d{5}$/;
 
 export default function OrderSuccessPage({ searchParams }: OrderSuccessPageProps) {
-  const requestedOrder = searchParams?.order ?? "";
+  const requestedOrder = searchParams?.order_id ?? searchParams?.order ?? "";
   const orderNumber = orderPattern.test(requestedOrder)
     ? requestedOrder
+    : /^\d+$/.test(requestedOrder)
+      ? `VN-${requestedOrder.padStart(5, "0").slice(-5)}`
     : `VN-${randomInt(0, 100000).toString().padStart(5, "0")}`;
 
   return (

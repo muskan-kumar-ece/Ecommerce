@@ -133,10 +133,7 @@ function CheckoutContent() {
         return;
       }
 
-      const idempotencyKey =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `checkout-${order.id}-${Date.now()}`;
+      const idempotencyKey = `checkout-${order.id}`;
       const paymentSession = await createRazorpayOrder({
         order_id: order.id,
         idempotency_key: idempotencyKey,
@@ -169,7 +166,7 @@ function CheckoutContent() {
             router.push(`/order-success?order_id=${order.id}`);
           } catch (verifyError) {
             console.error("Payment verification failed:", verifyError);
-            setError("Payment verification failed. Please contact support if amount was debited.");
+            setError(`Payment verification failed for order #${order.id}. Please contact support if amount was debited.`);
             setIsPlacingOrder(false);
           }
         },
