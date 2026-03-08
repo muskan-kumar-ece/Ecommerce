@@ -356,6 +356,52 @@ class PaymentAPITests(TestCase):
         self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
         self.assertEqual(PaymentWebhookEvent.objects.count(), 1)
 
+    def test_webhook_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["payments_webhook"] = "2/minute"
+        payload = {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {"id": "pay_web_rate", "order_id": "order_webhook_rate"}}},
+        }
+        body = json.dumps(payload).encode()
+        signature = hmac.new(b"rzp_webhook_secret", msg=body, digestmod=hashlib.sha256).hexdigest()
+        anonymous_client = APIClient()
+        try:
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_1",
+                ).status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_2",
+                ).status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_3",
+                ).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
+
     def test_webhook_does_not_downgrade_paid_order(self):
         payment = Payment.objects.create(
             order=self.order,

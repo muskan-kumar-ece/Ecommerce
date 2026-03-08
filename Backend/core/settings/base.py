@@ -177,6 +177,11 @@ REST_FRAMEWORK = {
         "register": config("THROTTLE_RATE_REGISTER", default="5/minute"),
         "order_create": config("THROTTLE_RATE_ORDER_CREATE", default="30/hour"),
         "payments": config("THROTTLE_RATE_PAYMENTS", default="60/hour"),
+        "payments_webhook": config("THROTTLE_RATE_PAYMENTS_WEBHOOK", default="300/hour"),
+        "reviews": config("THROTTLE_RATE_REVIEWS", default="10/hour"),
+        "chatbot": config("THROTTLE_RATE_CHATBOT", default="30/hour"),
+        "wishlist_mutations": config("THROTTLE_RATE_WISHLIST_MUTATIONS", default="60/hour"),
+        "price_watch": config("THROTTLE_RATE_PRICE_WATCH", default="60/hour"),
         "admin": config("THROTTLE_RATE_ADMIN", default="120/hour"),
     },
 }

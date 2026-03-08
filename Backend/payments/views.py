@@ -11,7 +11,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.throttles import PaymentRateThrottle
+from core.throttles import PaymentRateThrottle, WebhookRateThrottle
 from orders.notifications import send_order_email
 from orders.models import Order
 
@@ -327,6 +327,7 @@ class RefundOrderView(APIView):
 class RazorpayWebhookView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [WebhookRateThrottle]
 
     def post(self, request):
         if not settings.RAZORPAY_WEBHOOK_SECRET:

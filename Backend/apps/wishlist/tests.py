@@ -1,9 +1,11 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from products.models import Category, Product, ProductImage
 
@@ -97,3 +99,25 @@ class WishlistAPITests(TestCase):
         self.client.force_authenticate(user=self.user)
         response = self.client.delete(f'/api/v1/wishlist/{self.product.id}/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_wishlist_mutation_endpoints_are_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["wishlist_mutations"] = "2/minute"
+        self.client.force_authenticate(user=self.user)
+        try:
+            self.assertEqual(
+                self.client.post('/api/v1/wishlist/', {'product': self.product.id}, format='json').status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.post('/api/v1/wishlist/', {'product': self.product.id}, format='json').status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                self.client.delete(f'/api/v1/wishlist/{self.product.id}/').status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()

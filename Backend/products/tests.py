@@ -2,10 +2,12 @@ from decimal import Decimal
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from orders.models import Order, OrderItem
 from .models import Category, FlashSale, Product
@@ -300,6 +302,70 @@ class ProductReviewAPITests(TestCase):
             format="json",
         )
         self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_review_create_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["reviews"] = "2/minute"
+        try:
+            product_two = Product.objects.create(
+                category=self.category,
+                name="Study Tablet Plus",
+                description="for notes plus",
+                price=Decimal("22000.00"),
+                sku="TAB-002",
+                stock_quantity=4,
+                is_refurbished=False,
+                condition_grade="A",
+                is_active=True,
+            )
+            product_three = Product.objects.create(
+                category=self.category,
+                name="Study Tablet Pro",
+                description="for notes pro",
+                price=Decimal("24000.00"),
+                sku="TAB-003",
+                stock_quantity=3,
+                is_refurbished=False,
+                condition_grade="A",
+                is_active=True,
+            )
+            for product in (self.product, product_two, product_three):
+                order = Order.objects.create(
+                    user=self.user,
+                    total_amount=product.price,
+                    status=Order.Status.CONFIRMED,
+                    payment_status=Order.PaymentStatus.PAID,
+                )
+                OrderItem.objects.create(order=order, product=product, quantity=1, price=product.price)
+            self.client.force_authenticate(user=self.user)
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/reviews/",
+                    {"product": self.product.id, "rating": 5, "title": "Excellent", "comment": "Loved it"},
+                    format="json",
+                ).status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/reviews/",
+                    {"product": product_two.id, "rating": 4, "title": "Update", "comment": "Second review"},
+                    format="json",
+                ).status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/reviews/",
+                    {"product": product_three.id, "rating": 3, "title": "Again", "comment": "Another"},
+                    format="json",
+                ).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
 
     def test_product_reviews_endpoint_is_paginated(self):
         self._create_paid_order_for(self.user)

@@ -3,9 +3,11 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from orders.models import Order
 from products.models import Category, Product
@@ -118,3 +120,25 @@ class ChatbotAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["intent"], "order_status")
         self.assertEqual(response.data["response"], "AI generated answer about your order.")
+
+    def test_chatbot_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["chatbot"] = "2/minute"
+        self.client.force_authenticate(user=self.user)
+        try:
+            self.assertEqual(
+                self.client.post("/api/v1/chatbot/message", {"message": "order status"}, format="json").status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                self.client.post("/api/v1/chatbot/message", {"message": "order status"}, format="json").status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                self.client.post("/api/v1/chatbot/message", {"message": "order status"}, format="json").status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
