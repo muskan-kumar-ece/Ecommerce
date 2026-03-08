@@ -2,12 +2,19 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.throttles import WishlistMutationRateThrottle
+
 from .models import Wishlist
 from .serializers import WishlistCreateSerializer, WishlistItemSerializer
 
 
 class WishlistView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_throttles(self):
+        if self.request.method == "POST":
+            return [WishlistMutationRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         return Wishlist.objects.filter(user=self.request.user).select_related('product').prefetch_related('product__images')
@@ -30,6 +37,11 @@ class WishlistView(APIView):
 
 class WishlistDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_throttles(self):
+        if self.request.method == "DELETE":
+            return [WishlistMutationRateThrottle()]
+        return super().get_throttles()
 
     def delete(self, request, product_id):
         deleted_count, _ = Wishlist.objects.filter(user=request.user, product_id=product_id).delete()

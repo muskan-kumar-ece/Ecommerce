@@ -3,10 +3,12 @@ from decimal import Decimal
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from orders.admin import OrderAdmin, mark_orders_confirmed
 from orders.models import Order
@@ -160,3 +162,18 @@ class AnalyticsSummaryAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["revenue_from_referrals"], "0.00")
+
+    def test_admin_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["admin"] = "1/minute"
+        try:
+            self.client.force_authenticate(self.admin_user)
+            self.assertEqual(self.client.get("/admin/analytics/summary/").status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                self.client.get("/admin/analytics/summary/").status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()

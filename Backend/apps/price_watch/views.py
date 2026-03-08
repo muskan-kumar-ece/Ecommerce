@@ -2,6 +2,8 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.throttles import PriceWatchRateThrottle
+
 from .models import PriceWatch
 from .serializers import PriceWatchCreateSerializer, PriceWatchItemSerializer
 from .services import add_price_watch
@@ -9,6 +11,11 @@ from .services import add_price_watch
 
 class PriceWatchView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_throttles(self):
+        if self.request.method == "POST":
+            return [PriceWatchRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         return PriceWatch.objects.filter(user=self.request.user).select_related("product")
@@ -27,6 +34,11 @@ class PriceWatchView(APIView):
 
 class PriceWatchDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_throttles(self):
+        if self.request.method == "DELETE":
+            return [PriceWatchRateThrottle()]
+        return super().get_throttles()
 
     def delete(self, request, product_id):
         deleted_count, _ = PriceWatch.objects.filter(user=request.user, product_id=product_id).delete()

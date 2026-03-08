@@ -1,10 +1,12 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core import mail
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from products.models import Category, Product
 
@@ -44,6 +46,28 @@ class PriceWatchAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(PriceWatch.objects.filter(user=self.user, product=self.product).exists())
         self.assertEqual(response.data["last_price"], "1999.00")
+
+    def test_price_watch_mutation_endpoints_are_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["price_watch"] = "2/minute"
+        self.client.force_authenticate(user=self.user)
+        try:
+            self.assertEqual(
+                self.client.post("/api/v1/price-watch/", {"product": self.product.id}, format="json").status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.delete(f"/api/v1/price-watch/{self.product.id}/").status_code,
+                status.HTTP_204_NO_CONTENT,
+            )
+            self.assertEqual(
+                self.client.post("/api/v1/price-watch/", {"product": self.product.id}, format="json").status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

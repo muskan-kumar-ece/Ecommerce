@@ -6,10 +6,12 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from orders.models import Coupon, Order, OrderItem
 from products.models import Category, Product
@@ -81,6 +83,44 @@ class PaymentAPITests(TestCase):
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(Payment.objects.count(), 1)
         self.assertEqual(mock_urlopen.call_count, 1)
+
+    @patch("payments.services.urlopen")
+    def test_payment_create_order_endpoint_is_rate_limited(self, mock_urlopen):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["payments"] = "2/minute"
+        mock_urlopen.side_effect = [
+            MockHTTPResponse({"id": "order_rate_limited_1", "amount": 99900, "currency": "INR", "status": "created"}),
+            MockHTTPResponse({"id": "order_rate_limited_2", "amount": 99900, "currency": "INR", "status": "created"}),
+        ]
+        try:
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/payments/create-order/",
+                    {"order_id": self.order.id, "idempotency_key": "rate-idem-1"},
+                    format="json",
+                ).status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/payments/create-order/",
+                    {"order_id": self.order.id, "idempotency_key": "rate-idem-2"},
+                    format="json",
+                ).status_code,
+                status.HTTP_201_CREATED,
+            )
+            self.assertEqual(
+                self.client.post(
+                    "/api/v1/payments/create-order/",
+                    {"order_id": self.order.id, "idempotency_key": "rate-idem-3"},
+                    format="json",
+                ).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
 
     @patch("payments.views.send_order_email")
     def test_payment_verification_and_duplicate_prevention(self, mock_send_order_email):
@@ -315,6 +355,52 @@ class PaymentAPITests(TestCase):
         )
         self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
         self.assertEqual(PaymentWebhookEvent.objects.count(), 1)
+
+    def test_webhook_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["payments_webhook"] = "2/minute"
+        payload = {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {"id": "pay_web_rate", "order_id": "order_webhook_rate"}}},
+        }
+        body = json.dumps(payload).encode()
+        signature = hmac.new(b"rzp_webhook_secret", msg=body, digestmod=hashlib.sha256).hexdigest()
+        anonymous_client = APIClient()
+        try:
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_1",
+                ).status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_2",
+                ).status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                anonymous_client.post(
+                    "/api/v1/payments/webhook/",
+                    data=body,
+                    content_type="application/json",
+                    HTTP_X_RAZORPAY_SIGNATURE=signature,
+                    HTTP_X_RAZORPAY_EVENT_ID="evt_rate_3",
+                ).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
 
     def test_webhook_does_not_downgrade_paid_order(self):
         payment = Payment.objects.create(

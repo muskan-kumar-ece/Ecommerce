@@ -2,10 +2,12 @@ from decimal import Decimal
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from orders.models import Coupon
 
@@ -129,3 +131,65 @@ class ReferralSummaryAPITests(TestCase):
         self.assertEqual(response.data["earned_rewards"], "100.00")
         self.assertEqual(response.data["reward_coupon_codes"], ["REFABCD123456"])
         self.assertIn("/register/?ref=", response.data["referral_link"])
+
+
+class AuthThrottlingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.original_throttle_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES.update(
+            {
+                "register": "2/minute",
+                "auth": "2/minute",
+            }
+        )
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            email="throttle-user@example.com",
+            password="StrongPass123",
+            name="Throttle User",
+        )
+
+    def tearDown(self):
+        cache.clear()
+        SimpleRateThrottle.THROTTLE_RATES = self.original_throttle_rates
+
+    def test_register_endpoint_is_rate_limited(self):
+        for i in range(2):
+            response = self.client.post(
+                "/api/v1/users/register/",
+                {
+                    "name": "Rate Limited User",
+                    "email": f"throttle-register-{i}@example.com",
+                    "password": "StrongPass123",
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            "/api/v1/users/register/",
+            {
+                "name": "Rate Limited User",
+                "email": "throttle-register-blocked@example.com",
+                "password": "StrongPass123",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_login_endpoint_has_brute_force_throttle(self):
+        for _ in range(2):
+            response = self.client.post(
+                "/api/v1/auth/token/",
+                {"email": self.user.email, "password": "WrongPassword"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.post(
+            "/api/v1/auth/token/",
+            {"email": self.user.email, "password": "WrongPassword"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

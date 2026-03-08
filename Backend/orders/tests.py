@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core import mail
 from django.test import TestCase
@@ -10,6 +11,7 @@ from django.test.utils import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
+from rest_framework.throttling import SimpleRateThrottle
 
 from products.models import Category, Product
 
@@ -267,6 +269,22 @@ class OrderCreateWithItemsAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("items", response.data)
 
+    def test_create_order_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["order_create"] = "2/minute"
+        try:
+            payload = {"items": [{"product_id": self.product1.id, "quantity": 1}]}
+            self.assertEqual(self.client.post("/api/v1/orders/create/", payload, format="json").status_code, status.HTTP_201_CREATED)
+            self.assertEqual(self.client.post("/api/v1/orders/create/", payload, format="json").status_code, status.HTTP_201_CREATED)
+            self.assertEqual(
+                self.client.post("/api/v1/orders/create/", payload, format="json").status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
+
     def test_create_order_with_invalid_product(self):
         """Test creating an order with a non-existent product."""
         response = self.client.post(
@@ -315,8 +333,8 @@ class OrderCreateWithItemsAPITests(TestCase):
         response = self.client.get("/api/v1/orders/my-orders/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
-        order_ids = [order["id"] for order in response.data]
+        self.assertEqual(response.data["count"], 2)
+        order_ids = [order["id"] for order in response.data["results"]]
         self.assertIn(order1.id, order_ids)
         self.assertIn(order2.id, order_ids)
 
@@ -592,6 +610,18 @@ class AdminAnalyticsAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_admin_analytics_endpoint_is_rate_limited(self):
+        cache.clear()
+        original_rates = SimpleRateThrottle.THROTTLE_RATES.copy()
+        SimpleRateThrottle.THROTTLE_RATES["admin"] = "1/minute"
+        try:
+            self.client.force_authenticate(user=self.admin_user)
+            self.assertEqual(self.client.get("/api/v1/admin/analytics/").status_code, status.HTTP_200_OK)
+            self.assertEqual(self.client.get("/api/v1/admin/analytics/").status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        finally:
+            SimpleRateThrottle.THROTTLE_RATES = original_rates
+            cache.clear()
+
 
 class AdminOrderManagementAPITests(TestCase):
     def setUp(self):
@@ -657,11 +687,11 @@ class AdminOrderManagementAPITests(TestCase):
         by_search = self.client.get("/admin/orders/", {"search": "customer@example.com"})
 
         self.assertEqual(by_status.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(by_status.data), 1)
-        self.assertEqual(by_status.data[0]["status"], Order.Status.CANCELLED)
+        self.assertEqual(by_status.data["count"], 1)
+        self.assertEqual(by_status.data["results"][0]["status"], Order.Status.CANCELLED)
         self.assertEqual(by_search.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(by_search.data), 1)
-        self.assertEqual(by_search.data[0]["id"], self.order.id)
+        self.assertEqual(by_search.data["count"], 1)
+        self.assertEqual(by_search.data["results"][0]["id"], self.order.id)
 
     def test_admin_can_view_order_detail(self):
         self.client.force_authenticate(user=self.admin_user)

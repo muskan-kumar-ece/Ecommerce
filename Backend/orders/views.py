@@ -7,9 +7,11 @@ from django.db.models import F, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import decorators
 from rest_framework import permissions, viewsets
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from core.throttles import AdminRateThrottle, OrderCreateRateThrottle
 from .models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, ShippingAddress
 from .notifications import send_order_email
 from .serializers import (
@@ -23,6 +25,12 @@ from .serializers import (
     OrderSerializer,
     ShippingAddressSerializer,
 )
+
+
+class OrderPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class CartViewSet(viewsets.ModelViewSet):
@@ -47,6 +55,12 @@ class CartItemViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = OrderPagination
+
+    def get_throttles(self):
+        if self.action in {"create", "create_order"}:
+            return [OrderCreateRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         return (
@@ -234,6 +248,7 @@ class CouponViewSet(viewsets.ReadOnlyModelViewSet):
 
 class AdminAnalyticsView(APIView):
     permission_classes = [permissions.IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     def get(self, request):
         total_orders = Order.objects.count()

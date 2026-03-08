@@ -108,6 +108,9 @@ class Order(models.Model):
             models.Index(fields=["user"]),
             models.Index(fields=["status"]),
             models.Index(fields=["payment_status"]),
+            models.Index(fields=["user", "payment_status", "created_at"]),
+            models.Index(fields=["payment_status", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -221,6 +224,9 @@ class OrderItem(models.Model):
         indexes = [
             models.Index(fields=["order"]),
             models.Index(fields=["product"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["order", "product"], name="unique_order_item_per_order_product"),
         ]
 
     def __str__(self):

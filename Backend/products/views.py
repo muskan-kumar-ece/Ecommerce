@@ -12,6 +12,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from core.throttles import ReviewRateThrottle
+
 from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 from .permissions import IsAdminOrReadOnly
 from .serializers import (
@@ -131,6 +133,11 @@ class ProductReviewListView(ListAPIView):
 class ReviewViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     serializer_class = ReviewSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_throttles(self):
+        if self.action == "create":
+            return [ReviewRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         queryset = Review.objects.select_related("user", "product")
