@@ -9,6 +9,7 @@ from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.throttles import RegisterRateThrottle
 from orders.models import Coupon
 
 from .models import Referral
@@ -18,6 +19,7 @@ from .serializers import ReferralSummarySerializer, RegisterUserSerializer
 class RegisterUserView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterUserSerializer
+    throttle_classes = [RegisterRateThrottle]
 
 
 class ReferralSummaryView(APIView):

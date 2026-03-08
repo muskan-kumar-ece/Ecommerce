@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.throttles import AdminRateThrottle
 from orders.notifications import send_order_email
 from orders.models import Order, OrderEvent, ShippingEvent
 from users.models import Referral
@@ -29,6 +30,7 @@ TRACKING_ID_PREFIX = "TRK"
 
 class AnalyticsSummaryView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     def get(self, request):
         today = timezone.localdate()
@@ -111,6 +113,7 @@ class AnalyticsSummaryView(APIView):
 
 class AdminOrderListView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     def get(self, request):
         queryset = Order.objects.select_related("user").order_by("-created_at")
@@ -140,6 +143,7 @@ class AdminOrderListView(APIView):
 
 class AdminOrderDetailView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     def get(self, request, order_id):
         order = get_object_or_404(
@@ -156,6 +160,7 @@ class AdminOrderDetailView(APIView):
 
 class AdminOrderStatusUpdateView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     @transaction.atomic
     def post(self, request, order_id):
@@ -199,6 +204,7 @@ class AdminOrderStatusUpdateView(APIView):
 
 class AdminShipOrderView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     @transaction.atomic
     def post(self, request, order_id):
@@ -235,6 +241,7 @@ class AdminShipOrderView(APIView):
 
 class AdminDeliverOrderView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [AdminRateThrottle]
 
     @transaction.atomic
     def post(self, request, order_id):

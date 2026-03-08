@@ -11,6 +11,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.throttles import PaymentRateThrottle
 from orders.notifications import send_order_email
 from orders.models import Order
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 class CreateRazorpayOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [PaymentRateThrottle]
 
     def post(self, request):
         if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
@@ -111,6 +113,7 @@ class CreateRazorpayOrderView(APIView):
 
 class RetryPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [PaymentRateThrottle]
 
     @transaction.atomic
     def post(self, request, order_id):
@@ -180,6 +183,7 @@ class RetryPaymentView(APIView):
 
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [PaymentRateThrottle]
 
     @transaction.atomic
     def post(self, request):
@@ -271,6 +275,7 @@ class VerifyRazorpayPaymentView(APIView):
 
 class RefundOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [PaymentRateThrottle]
 
     @transaction.atomic
     def post(self, request):

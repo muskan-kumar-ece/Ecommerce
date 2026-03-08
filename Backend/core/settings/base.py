@@ -174,6 +174,10 @@ REST_FRAMEWORK = {
         "anon": config("THROTTLE_RATE_ANON", default="100/hour"),
         "user": config("THROTTLE_RATE_USER", default="2000/hour"),
         "auth": config("THROTTLE_RATE_AUTH", default="10/minute"),
+        "register": config("THROTTLE_RATE_REGISTER", default="5/minute"),
+        "order_create": config("THROTTLE_RATE_ORDER_CREATE", default="30/hour"),
+        "payments": config("THROTTLE_RATE_PAYMENTS", default="60/hour"),
+        "admin": config("THROTTLE_RATE_ADMIN", default="120/hour"),
     },
 }
 
