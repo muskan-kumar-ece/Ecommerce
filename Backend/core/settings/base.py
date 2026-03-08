@@ -26,6 +26,7 @@ THIRD_PARTY_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "channels",
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -45,6 +46,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.RequestIDMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -90,6 +92,32 @@ else:
             "BACKEND": "channels.layers.InMemoryChannelLayer",
         }
     }
+
+# Cache — use Redis when available, fall back to in-memory for local dev.
+CACHE_REDIS_URL = config("CACHE_REDIS_URL", default="")
+if CACHE_REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": CACHE_REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "SOCKET_CONNECT_TIMEOUT": 5,
+                "SOCKET_TIMEOUT": 5,
+            },
+            "KEY_PREFIX": "ecommerce",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+# Default cache TTLs (seconds) — can be overridden per view.
+CACHE_TTL_PRODUCT_LIST = config("CACHE_TTL_PRODUCT_LIST", default=300, cast=int)   # 5 min
+CACHE_TTL_ANALYTICS = config("CACHE_TTL_ANALYTICS", default=600, cast=int)         # 10 min
 
 if config("DB_NAME", default=""):
     DATABASES = {
@@ -138,6 +166,15 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": config("THROTTLE_RATE_ANON", default="100/hour"),
+        "user": config("THROTTLE_RATE_USER", default="2000/hour"),
+        "auth": config("THROTTLE_RATE_AUTH", default="10/minute"),
+    },
 }
 
 SIMPLE_JWT = {
@@ -179,19 +216,54 @@ OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
 
 LOG_LEVEL = config("LOG_LEVEL", default="INFO")
+# Set LOG_FORMAT=json in production to emit machine-parseable JSON log lines
+# (e.g. for ingestion by CloudWatch, Datadog, Loki).
+# Any other value (including the default "text") uses a human-readable format.
+LOG_FORMAT = config("LOG_FORMAT", default="text")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {
+            "()": "core.log_filters.RequestIDFilter",
+        },
+    },
     "formatters": {
         "verbose": {
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            # request_id is injected by RequestIDFilter; falls back to "-" when
+            # logging happens outside a request context (e.g. management commands).
+            "format": "%(asctime)s %(levelname)s [%(request_id)s] %(name)s %(message)s",
+        },
+        "json": {
+            # Structured JSON formatter – enabled when LOG_FORMAT=json.
+            # Each log line is a single JSON object, making it trivial to
+            # parse, filter, and alert on in log aggregation platforms.
+            "()": "core.log_filters.JsonFormatter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            # Use JSON formatter when LOG_FORMAT=json, otherwise human-readable text.
+            "formatter": "json" if LOG_FORMAT == "json" else "verbose",
+            "filters": ["request_id"],
         }
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
+}
+
+# ---------------------------------------------------------------------------
+# drf-spectacular – auto-generated OpenAPI schema
+# ---------------------------------------------------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Ecommerce API",
+    "DESCRIPTION": (
+        "REST API for the Venopai ecommerce platform. "
+        "All endpoints under /api/v1/ require a Bearer JWT unless marked public."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/v1/",
 }

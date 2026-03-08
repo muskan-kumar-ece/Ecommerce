@@ -1,134 +1,31 @@
-import base64
 import hashlib
 import hmac
-import json
 import logging
-from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import F
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.notifications import send_order_email
-from orders.models import Coupon, Order
-from products.models import Product
-from users.models import Referral
+from orders.models import Order
 
 from .models import Payment, PaymentEvent, PaymentWebhookEvent
+from .services import (
+    MAX_RETRY_ATTEMPTS,
+    RazorpayIntegrationError,
+    compute_signature,
+    create_razorpay_order,
+    deduct_order_stock,
+    issue_referral_reward,
+    payment_entity,
+)
 
 logger = logging.getLogger(__name__)
-MAX_CODE_GENERATION_ATTEMPTS = 5
-MAX_RETRY_ATTEMPTS = 3
-
-
-class RazorpayIntegrationError(Exception):
-    pass
-
-
-def _compute_signature(message: str, secret: str) -> str:
-    return hmac.new(secret.encode(), msg=message.encode(), digestmod=hashlib.sha256).hexdigest()
-
-
-def _payment_entity(payload: dict) -> dict:
-    return (((payload.get("payload") or {}).get("payment") or {}).get("entity") or {})
-
-
-def _deduct_order_stock(order: Order) -> None:
-    if order.stock_deducted:
-        return
-
-    order_items = list(order.items.all())
-    if not order_items:
-        order.stock_deducted = True
-        order.save(update_fields=["stock_deducted", "updated_at"])
-        return
-
-    product_ids = [item.product_id for item in order_items]
-    list(Product.objects.select_for_update().filter(id__in=product_ids))
-    for item in order_items:
-        updated = Product.objects.filter(id=item.product_id, stock_quantity__gte=item.quantity).update(
-            stock_quantity=F("stock_quantity") - item.quantity
-        )
-        if not updated:
-            raise ValidationError({"detail": "Insufficient stock for one or more items."})
-
-    order.stock_deducted = True
-    order.save(update_fields=["stock_deducted", "updated_at"])
-
-
-def _issue_referral_reward(order: Order) -> None:
-    referral = (
-        Referral.objects.select_for_update()
-        .select_related("referrer", "referred_user")
-        .filter(referred_user=order.user)
-        .first()
-    )
-    if not referral or referral.reward_issued:
-        return
-    has_previous_paid_order = (
-        Order.objects.filter(user=order.user, payment_status=Order.PaymentStatus.PAID)
-        .exclude(id=order.id)
-        .exists()
-    )
-    if has_previous_paid_order:
-        return
-    now = timezone.now()
-    for _ in range(MAX_CODE_GENERATION_ATTEMPTS):
-        coupon_code = f"REF{uuid4().hex[:12]}".upper()
-        try:
-            Coupon.objects.create(
-                code=coupon_code,
-                discount_type=Coupon.DiscountType.FIXED,
-                discount_value=Decimal("100.00"),
-                max_uses=1,
-                per_user_limit=1,
-                eligible_user=referral.referrer,
-                valid_from=now,
-                valid_until=now + timedelta(days=30),
-                is_active=True,
-            )
-            break
-        except IntegrityError:
-            continue
-    else:
-        raise IntegrityError("Unable to generate unique reward coupon code.")
-    referral.reward_issued = True
-    referral.save(update_fields=["reward_issued"])
-
-
-def _create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
-    payload = json.dumps(
-        {
-            "amount": amount,
-            "currency": currency,
-            "receipt": receipt,
-            "payment_capture": 1,
-        }
-    ).encode()
-    credentials = f"{settings.RAZORPAY_KEY_ID}:{settings.RAZORPAY_KEY_SECRET}".encode()
-    request = Request(
-        f"{settings.RAZORPAY_API_BASE_URL.rstrip('/')}/orders",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {base64.b64encode(credentials).decode()}",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=10) as response:
-            return json.loads(response.read().decode())
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RazorpayIntegrationError("Failed to create Razorpay order") from exc
 
 
 class CreateRazorpayOrderView(APIView):
@@ -179,7 +76,7 @@ class CreateRazorpayOrderView(APIView):
                     )
 
                 amount_paise = int((Decimal(order.total_amount) * Decimal("100")).quantize(Decimal("1")))
-                razorpay_order = _create_razorpay_order(
+                razorpay_order = create_razorpay_order(
                     amount=amount_paise,
                     currency="INR",
                     receipt=f"order_{order.id}",
@@ -242,7 +139,7 @@ class RetryPaymentView(APIView):
 
         try:
             amount_paise = int((Decimal(order.total_amount) * Decimal("100")).quantize(Decimal("1")))
-            razorpay_order = _create_razorpay_order(
+            razorpay_order = create_razorpay_order(
                 amount=amount_paise,
                 currency="INR",
                 receipt=f"order_{order.id}_retry_{retry_attempt + 1}",
@@ -318,7 +215,7 @@ class VerifyRazorpayPaymentView(APIView):
                 logger.warning("Duplicate Razorpay payment id received: %s", razorpay_payment_id)
                 return Response({"detail": "Duplicate payment id."}, status=status.HTTP_409_CONFLICT)
 
-            expected_signature = _compute_signature(
+            expected_signature = compute_signature(
                 f"{razorpay_order_id}|{razorpay_payment_id}",
                 settings.RAZORPAY_KEY_SECRET,
             )
@@ -345,7 +242,7 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.order.payment_status != Order.PaymentStatus.PAID
                 and not payment.order.stock_deducted
             ):
-                _deduct_order_stock(payment.order)
+                deduct_order_stock(payment.order)
             payment.save(
                 update_fields=[
                     "razorpay_payment_id",
@@ -361,7 +258,7 @@ class VerifyRazorpayPaymentView(APIView):
                 payment.order.status = Order.Status.CONFIRMED
                 order_update_fields.append("status")
             payment.order.save(update_fields=order_update_fields)
-            _issue_referral_reward(payment.order)
+            issue_referral_reward(payment.order)
             PaymentEvent.objects.create(
                 payment=payment,
                 event_type=PaymentEvent.EventType.PAYMENT_SUCCESS,
@@ -451,7 +348,7 @@ class RazorpayWebhookView(APIView):
             return Response({"detail": "Webhook already processed."}, status=status.HTTP_200_OK)
 
         event_type = request.data.get("event")
-        entity = _payment_entity(request.data)
+        entity = payment_entity(request.data)
         razorpay_order_id = entity.get("order_id")
         if not razorpay_order_id:
             return Response({"detail": "Webhook accepted."}, status=status.HTTP_200_OK)
@@ -474,7 +371,7 @@ class RazorpayWebhookView(APIView):
                 next_status = Order.PaymentStatus.PAID
                 if next_status in allowed_order_status_transitions.get(current_status, set()):
                     should_send_payment_email = payment.order.payment_status != next_status
-                    _deduct_order_stock(payment.order)
+                    deduct_order_stock(payment.order)
                     payment.status = Payment.Status.CAPTURED
                     payment.verified_at = timezone.now()
                     payment.order.payment_status = next_status
@@ -483,7 +380,7 @@ class RazorpayWebhookView(APIView):
                         payment.order.status = Order.Status.CONFIRMED
                         order_update_fields.append("status")
                     payment.order.save(update_fields=order_update_fields)
-                    _issue_referral_reward(payment.order)
+                    issue_referral_reward(payment.order)
                     PaymentEvent.objects.create(
                         payment=payment,
                         event_type=PaymentEvent.EventType.PAYMENT_SUCCESS,

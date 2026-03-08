@@ -2,7 +2,7 @@ import { apiClient } from "@/lib/api/client";
 import type { AdminAnalyticsDashboard, AnalyticsSummary } from "@/lib/api/types";
 
 export async function fetchAnalyticsSummary() {
-  const { data } = await apiClient.get<AnalyticsSummary>("/admin/analytics/summary/");
+  const { data } = await apiClient.get<AnalyticsSummary>("/api/v1/admin/analytics/summary/");
   return data;
 }
 

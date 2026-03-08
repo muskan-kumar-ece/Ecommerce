@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ecommerce}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Persist Redis data so channel-layer groups and cache survive restarts.
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./Backend
+    restart: unless-stopped
+    env_file: ./Backend/.env
+    environment:
+      DB_HOST: db
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/1
+      DJANGO_ENV: prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # Give in-flight requests (e.g. payment verification) time to complete
+    # before the container is stopped on redeploy.
+    stop_grace_period: 30s
+    # Media files are stored in a named volume so they survive container restarts.
+    # For production with multiple replicas, migrate to object storage (S3/GCS).
+    volumes:
+      - media_files:/app/media
+    command: >
+      sh -c "python manage.py migrate --settings=core.settings.prod &&
+             daphne -b 0.0.0.0 -p 8000 core.asgi:application"
+
+  frontend:
+    build:
+      context: ./Frontend
+    restart: unless-stopped
+    env_file: ./Frontend/.env.local
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_files:

@@ -1,7 +1,20 @@
+import re
+
 from rest_framework import serializers
 
 from .models import Category, FlashSale, Inventory, Product, ProductImage, Review
 from orders.models import Order, OrderItem
+
+
+def strip_html_tags(value: str) -> str:
+    """Remove HTML/XML tags and collapse excess whitespace from a string.
+
+    This is a lightweight defence-in-depth sanitisation step that ensures
+    no raw HTML can be stored in free-text fields such as review comments or
+    product descriptions, reducing XSS risk in rendered output.
+    """
+    clean = re.sub(r"<[^>]+>", "", value or "")
+    return " ".join(clean.split())
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -51,6 +64,8 @@ class InventorySerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    """Full product serializer — used for create/update and single-object detail responses."""
+
     category_name = serializers.CharField(source="category.name", read_only=True)
     average_rating = serializers.FloatField(read_only=True)
     reviews_count = serializers.IntegerField(read_only=True)
@@ -76,6 +91,42 @@ class ProductSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_description(self, value):
+        return strip_html_tags(value)
+
+    def validate_name(self, value):
+        return strip_html_tags(value)
+
+
+class ProductListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer used for paginated product list responses.
+
+    Omits ``description`` (often large) and nested inventory data to keep
+    list payloads small, reducing both bandwidth and serialization overhead.
+    """
+
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    average_rating = serializers.FloatField(read_only=True)
+    reviews_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "category",
+            "category_name",
+            "name",
+            "slug",
+            "price",
+            "stock_quantity",
+            "is_refurbished",
+            "condition_grade",
+            "is_active",
+            "average_rating",
+            "reviews_count",
+        )
+        read_only_fields = fields
 
 
 class ProductSearchResultSerializer(serializers.ModelSerializer):
@@ -130,6 +181,12 @@ class ReviewSerializer(serializers.ModelSerializer):
     def get_is_mine(self, obj):
         request = self.context.get("request")
         return bool(request and request.user.is_authenticated and obj.user_id == request.user.id)
+
+    def validate_title(self, value):
+        return strip_html_tags(value)
+
+    def validate_comment(self, value):
+        return strip_html_tags(value)
 
     def validate(self, attrs):
         request = self.context.get("request")

@@ -1,3 +1,4 @@
+import logging
 from smtplib import SMTPException
 
 from django.conf import settings
@@ -5,6 +6,8 @@ from django.core.mail import BadHeaderError, send_mail
 from django.template.loader import render_to_string
 
 from .models import PriceWatch
+
+logger = logging.getLogger(__name__)
 
 PRICE_DROP_SUBJECT = "Price drop alert for your watchlist product"
 
@@ -34,6 +37,12 @@ def send_price_drop_email(price_watch: PriceWatch, old_price, new_price):
             recipient_list=[price_watch.user.email],
             fail_silently=False,
         )
-    except (SMTPException, BadHeaderError, OSError):
+    except (SMTPException, BadHeaderError, OSError) as exc:
+        logger.error(
+            "Failed to send price drop email product_id=%s user_id=%s: %s",
+            price_watch.product_id,
+            price_watch.user_id,
+            exc,
+        )
         return False
     return True
