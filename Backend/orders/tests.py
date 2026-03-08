@@ -267,6 +267,7 @@ class OrderCreateWithItemsAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("items", response.data)
 
     def test_create_order_endpoint_is_rate_limited(self):
         cache.clear()
