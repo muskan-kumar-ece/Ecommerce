@@ -7,10 +7,12 @@ class Wishlist(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'product')
         indexes = [
             models.Index(fields=['user']),
             models.Index(fields=['product']),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'product'], name='unique_wishlist_user_product'),
         ]
         ordering = ('-created_at',)
 

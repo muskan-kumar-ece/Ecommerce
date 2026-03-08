@@ -31,6 +31,7 @@ class Payment(models.Model):
         indexes = [
             models.Index(fields=["order"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["order", "status"]),
         ]
         constraints = [
             models.UniqueConstraint(
