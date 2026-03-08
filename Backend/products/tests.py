@@ -1,5 +1,8 @@
 from decimal import Decimal
 from datetime import timedelta
+import hashlib
+import time
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -33,6 +36,7 @@ class ProductModelTests(TestCase):
 
 class ProductAPITests(TestCase):
     def test_products_list_is_public(self):
+        cache.clear()
         category = Category.objects.create(name="Mobiles")
         Product.objects.create(
             category=category,
@@ -66,6 +70,7 @@ class ProductAPITests(TestCase):
 
 class ProductSearchFilterPaginationTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.electronics = Category.objects.create(name="Electronics")
         self.appliances = Category.objects.create(name="Appliances")
@@ -230,6 +235,7 @@ class AdvancedProductSearchAPITests(TestCase):
 
 class ProductReviewAPITests(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = get_user_model().objects.create_user(
             email="buyer@example.com",
@@ -508,3 +514,93 @@ class FlashSaleAPITests(TestCase):
         self.assertFalse(response.data["is_active"])
         self.assertEqual(response.data["remaining_stock"], 0)
         self.assertEqual(response.data["countdown_seconds"], 0)
+
+
+class ProductCachingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.category = Category.objects.create(name="Caching Category")
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Cached Product",
+            description="Cache me",
+            price=Decimal("1200.00"),
+            sku="CACHE-001",
+            stock_quantity=5,
+            is_refurbished=False,
+            condition_grade="A",
+            is_active=True,
+        )
+        self.admin_user = get_user_model().objects.create_superuser(
+            email="cache-admin@example.com",
+            password="StrongPass123",
+            name="Cache Admin",
+        )
+
+    def _product_list_cache_key(self, path, params=None):
+        params = params or {}
+        query_param_lists = [(key, [value] if not isinstance(value, list) else value) for key, value in params.items()]
+        sorted_query_params = urlencode(sorted(query_param_lists), doseq=True)
+        page_number = params.get("page", "1")
+        key_source = f"{path}|{sorted_query_params}|page={page_number}"
+        key_hash = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+        return f"product_list:{key_hash}"
+
+    def test_product_list_cache_hit_returns_identical_response(self):
+        cached_payload = {"count": 1, "next": None, "previous": None, "results": [{"id": self.product.id, "name": "Cached Product"}]}
+        cache_key = self._product_list_cache_key("/api/v1/products/")
+        cache.set(cache_key, cached_payload, timeout=300)
+        response = self.client.get("/api/v1/products/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, cached_payload)
+
+    def test_product_list_cache_miss_populates_cache_with_ttl(self):
+        cache_key = self._product_list_cache_key("/api/v1/products/", {"category": "caching-category", "page": "1"})
+        cache.delete(cache_key)
+        response = self.client.get("/api/v1/products/?category=caching-category&page=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get(cache_key))
+        if hasattr(cache, "_expire_info"):
+            remaining_ttl = cache._expire_info[cache.make_key(cache_key)] - time.time()
+            self.assertGreater(remaining_ttl, 0)
+            self.assertLessEqual(remaining_ttl, 300)
+
+    def test_product_detail_cache_miss_populates_cache_with_ttl(self):
+        cache_key = f"product_detail:{self.product.id}"
+        cache.delete(cache_key)
+        response = self.client.get(f"/api/v1/products/{self.product.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get(cache_key))
+        if hasattr(cache, "_expire_info"):
+            remaining_ttl = cache._expire_info[cache.make_key(cache_key)] - time.time()
+            self.assertGreater(remaining_ttl, 0)
+            self.assertLessEqual(remaining_ttl, 600)
+
+    def test_product_mutation_endpoint_bypasses_cache(self):
+        self.client.force_authenticate(user=self.admin_user)
+        list_cache_key = self._product_list_cache_key("/api/v1/products/")
+        cache.delete(list_cache_key)
+
+        response = self.client.post(
+            "/api/v1/products/",
+            {
+                "category": self.category.id,
+                "name": "Created Without Cache",
+                "slug": "created-without-cache",
+                "description": "New",
+                "price": "1300.00",
+                "sku": "CACHE-POST-001",
+                "stock_quantity": 3,
+                "is_refurbished": False,
+                "condition_grade": "A",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(cache.get(list_cache_key))
+        self.assertIsNone(cache.get(f"product_detail:{response.data['id']}"))

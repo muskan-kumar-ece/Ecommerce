@@ -1,5 +1,6 @@
 from decimal import Decimal
 from datetime import timedelta
+import time
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -523,6 +524,7 @@ class CouponAPITests(TestCase):
 
 class AdminAnalyticsAPITests(TestCase):
     def setUp(self):
+        cache.clear()
         self.admin_user = get_user_model().objects.create_user(
             email="admin-analytics@example.com",
             password="StrongPass123",
@@ -621,6 +623,33 @@ class AdminAnalyticsAPITests(TestCase):
         finally:
             SimpleRateThrottle.THROTTLE_RATES = original_rates
             cache.clear()
+
+    def test_admin_analytics_cache_hit_returns_identical_response(self):
+        cached_payload = {
+            "total_orders": 99,
+            "total_revenue": "1234.56",
+            "total_users": 7,
+            "top_products": [{"product_id": self.product_a.id, "name": self.product_a.name, "total_sold": 12}],
+            "recent_orders": [],
+        }
+        cache.set("admin_analytics_summary", cached_payload, timeout=120)
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get("/api/v1/admin/analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, cached_payload)
+
+    def test_admin_analytics_cache_miss_populates_cache_with_ttl(self):
+        self.client.force_authenticate(user=self.admin_user)
+        cache.delete("admin_analytics_summary")
+        response = self.client.get("/api/v1/admin/analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(cache.get("admin_analytics_summary"))
+        if hasattr(cache, "_expire_info"):
+            remaining_ttl = cache._expire_info[cache.make_key("admin_analytics_summary")] - time.time()
+            self.assertGreater(remaining_ttl, 0)
+            self.assertLessEqual(remaining_ttl, 120)
 
 
 class AdminOrderManagementAPITests(TestCase):

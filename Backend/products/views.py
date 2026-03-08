@@ -1,5 +1,8 @@
 from difflib import SequenceMatcher
+import hashlib
+from urllib.parse import urlencode
 
+from django.core.cache import cache
 from django.db.models import Avg, Count, Q, Value
 from django.db.models.functions import Coalesce
 from django_filters import rest_framework as filters
@@ -101,6 +104,59 @@ class ProductViewSet(viewsets.ModelViewSet):
         if self.request.user.is_authenticated and self.request.user.is_staff:
             return queryset
         return queryset.filter(is_active=True)
+
+    def _product_list_cache_key(self, request):
+        sorted_query_params = urlencode(sorted(request.query_params.lists()), doseq=True)
+        page_number = request.query_params.get("page", "1")
+        key_source = f"{request.path}|{sorted_query_params}|page={page_number}"
+        key_hash = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+        return f"product_list:{key_hash}"
+
+    def list(self, request, *args, **kwargs):
+        if request.method != "GET":
+            return super().list(request, *args, **kwargs)
+
+        cache_key = self._product_list_cache_key(request)
+        try:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        except Exception:
+            pass
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+        else:
+            serializer = self.get_serializer(queryset, many=True)
+            response = Response(serializer.data)
+
+        try:
+            cache.set(cache_key, response.data, timeout=300)
+        except Exception:
+            pass
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        if request.method != "GET":
+            return super().retrieve(request, *args, **kwargs)
+
+        cache_key = f"product_detail:{kwargs.get('pk')}"
+        try:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        except Exception:
+            pass
+
+        response = super().retrieve(request, *args, **kwargs)
+        try:
+            cache.set(cache_key, response.data, timeout=600)
+        except Exception:
+            pass
+        return response
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):
