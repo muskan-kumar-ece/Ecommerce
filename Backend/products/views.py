@@ -18,6 +18,7 @@ from .serializers import (
     CategorySerializer,
     InventorySerializer,
     ProductImageSerializer,
+    ProductListSerializer,
     ProductSearchResultSerializer,
     ProductSerializer,
     ProductSuggestionSerializer,
@@ -83,6 +84,12 @@ class ProductViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "description", "sku"]
     ordering_fields = ["price", "created_at"]
     ordering = ["-created_at"]
+
+    def get_serializer_class(self):
+        """Return the lightweight list serializer for collection responses."""
+        if self.action == "list":
+            return ProductListSerializer
+        return ProductSerializer
 
     def get_queryset(self):
         queryset = Product.objects.select_related("category", "inventory").prefetch_related("images").annotate(

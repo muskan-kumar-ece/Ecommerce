@@ -41,14 +41,14 @@ type AdminOrdersFilters = {
 };
 
 export async function fetchAdminOrders(filters: AdminOrdersFilters) {
-  const { data } = await apiClient.get<AdminOrderListItem[]>("/admin/orders/", {
+  const { data } = await apiClient.get<AdminOrderListItem[]>("/api/v1/admin/orders/", {
     params: filters,
   });
   return data;
 }
 
 export async function fetchAdminOrder(id: string) {
-  const { data } = await apiClient.get<AdminOrderDetail>(`/admin/orders/${id}/`);
+  const { data } = await apiClient.get<AdminOrderDetail>(`/api/v1/admin/orders/${id}/`);
   return data;
 }
 
@@ -56,6 +56,6 @@ export async function updateAdminOrderStatus(
   id: string,
   payload: { status: string; payment_status?: string; note?: string },
 ) {
-  const { data } = await apiClient.post<AdminOrderDetail>(`/admin/orders/${id}/status/`, payload);
+  const { data } = await apiClient.post<AdminOrderDetail>(`/api/v1/admin/orders/${id}/status/`, payload);
   return data;
 }

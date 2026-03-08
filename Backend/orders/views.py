@@ -51,8 +51,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             Order.objects.filter(user=self.request.user)
-            .select_related("shipping_address")
-            .prefetch_related("items", "shipping_events")
+            .select_related("shipping_address", "applied_coupon")
+            .prefetch_related("items__product", "shipping_events", "events")
         )
 
     def get_serializer_class(self):
@@ -66,8 +66,8 @@ class OrderViewSet(viewsets.ModelViewSet):
         if idempotency_key:
             existing_order = (
                 Order.objects.filter(user=self.request.user, idempotency_key=idempotency_key)
-                .select_related("shipping_address")
-                .prefetch_related("items")
+                .select_related("shipping_address", "applied_coupon")
+                .prefetch_related("items__product")
                 .first()
             )
             if existing_order:

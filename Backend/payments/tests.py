@@ -59,7 +59,7 @@ class PaymentAPITests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
-    @patch("payments.views.urlopen")
+    @patch("payments.services.urlopen")
     def test_create_order_with_idempotency(self, mock_urlopen):
         mock_urlopen.return_value = MockHTTPResponse(
             {"id": "order_123", "amount": 99900, "currency": "INR", "status": "created"}
@@ -486,7 +486,7 @@ class PaymentAPITests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.Status.PAYMENT_FAILED)
 
-    @patch("payments.views.urlopen")
+    @patch("payments.services.urlopen")
     def test_payment_retry_for_failed_order_creates_new_session(self, mock_urlopen):
         mock_urlopen.return_value = MockHTTPResponse(
             {"id": "order_retry_1", "amount": 99900, "currency": "INR", "status": "created"}
@@ -507,7 +507,7 @@ class PaymentAPITests(TestCase):
             1,
         )
 
-    @patch("payments.views.urlopen")
+    @patch("payments.services.urlopen")
     def test_payment_retry_is_limited_to_three_attempts(self, mock_urlopen):
         self.order.payment_status = Order.PaymentStatus.FAILED
         self.order.status = Order.Status.PAYMENT_FAILED
@@ -523,7 +523,7 @@ class PaymentAPITests(TestCase):
         self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(blocked.data["detail"], "Maximum payment retry attempts reached.")
 
-    @patch("payments.views.urlopen")
+    @patch("payments.services.urlopen")
     def test_payment_retry_rejects_paid_order(self, mock_urlopen):
         self.order.payment_status = Order.PaymentStatus.PAID
         self.order.status = Order.Status.CONFIRMED

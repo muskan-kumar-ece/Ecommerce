@@ -26,6 +26,7 @@ THIRD_PARTY_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "channels",
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -45,6 +46,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.RequestIDMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -90,6 +92,32 @@ else:
             "BACKEND": "channels.layers.InMemoryChannelLayer",
         }
     }
+
+# Cache — use Redis when available, fall back to in-memory for local dev.
+CACHE_REDIS_URL = config("CACHE_REDIS_URL", default="")
+if CACHE_REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": CACHE_REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "SOCKET_CONNECT_TIMEOUT": 5,
+                "SOCKET_TIMEOUT": 5,
+            },
+            "KEY_PREFIX": "ecommerce",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+# Default cache TTLs (seconds) — can be overridden per view.
+CACHE_TTL_PRODUCT_LIST = config("CACHE_TTL_PRODUCT_LIST", default=300, cast=int)   # 5 min
+CACHE_TTL_ANALYTICS = config("CACHE_TTL_ANALYTICS", default=600, cast=int)         # 10 min
 
 if config("DB_NAME", default=""):
     DATABASES = {
@@ -203,4 +231,19 @@ LOGGING = {
         }
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
+}
+
+# ---------------------------------------------------------------------------
+# drf-spectacular – auto-generated OpenAPI schema
+# ---------------------------------------------------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Ecommerce API",
+    "DESCRIPTION": (
+        "REST API for the Venopai ecommerce platform. "
+        "All endpoints under /api/v1/ require a Bearer JWT unless marked public."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/v1/",
 }

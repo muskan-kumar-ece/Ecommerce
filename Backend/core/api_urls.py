@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from core.health import HealthCheckView
 from orders.views import AdminAnalyticsView
 from products.views import ProductSearchSuggestionsView, ProductSearchView
 
@@ -27,6 +28,7 @@ class ThrottledTokenRefreshView(TokenRefreshView):
 
 
 urlpatterns = [
+    path("health/", HealthCheckView.as_view(), name="health-check"),
     path("auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", ThrottledTokenRefreshView.as_view(), name="token_refresh"),
     path("admin/analytics/", AdminAnalyticsView.as_view(), name="admin-analytics"),
@@ -44,4 +46,5 @@ urlpatterns = [
     path("chatbot/", include("apps.chatbot.urls")),
     path("price-watch/", include("apps.price_watch.urls")),
     path("vendors/", include("vendors.urls")),
+    path("admin/", include("adminpanel.urls")),
 ]
