@@ -109,7 +109,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         sorted_query_params = urlencode(sorted(request.query_params.lists()), doseq=True)
         page_number = request.query_params.get("page", "1")
         key_source = f"{request.path}|{sorted_query_params}|page={page_number}"
-        key_hash = hashlib.md5(key_source.encode("utf-8")).hexdigest()
+        key_hash = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
         return f"product_list:{key_hash}"
 
     def list(self, request, *args, **kwargs):

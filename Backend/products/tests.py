@@ -540,10 +540,11 @@ class ProductCachingTests(TestCase):
 
     def _product_list_cache_key(self, path, params=None):
         params = params or {}
-        sorted_query_params = urlencode(sorted(params.items()), doseq=True)
+        query_param_lists = [(key, [value] if not isinstance(value, list) else value) for key, value in params.items()]
+        sorted_query_params = urlencode(sorted(query_param_lists), doseq=True)
         page_number = params.get("page", "1")
         key_source = f"{path}|{sorted_query_params}|page={page_number}"
-        key_hash = hashlib.md5(key_source.encode("utf-8")).hexdigest()
+        key_hash = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
         return f"product_list:{key_hash}"
 
     def test_product_list_cache_hit_returns_identical_response(self):
