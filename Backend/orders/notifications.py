@@ -1,3 +1,4 @@
+import logging
 from smtplib import SMTPException
 
 from django.conf import settings
@@ -8,6 +9,8 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from .models import Cart, EmailEvent, Order
+
+logger = logging.getLogger(__name__)
 
 EMAIL_SUBJECTS = {
     EmailEvent.EmailType.ORDER_CONFIRMED: "Your order is confirmed",
@@ -67,7 +70,13 @@ def send_order_email(email_type: str, order: Order) -> bool:
                 recipient_list=[order.user.email],
                 fail_silently=False,
             )
-        except (SMTPException, BadHeaderError, OSError):
+        except (SMTPException, BadHeaderError, OSError) as exc:
+            logger.error(
+                "Failed to send order email type=%s order_id=%s: %s",
+                email_type,
+                order.id,
+                exc,
+            )
             email_event.status = EmailEvent.Status.FAILED
             email_event.sent_at = None
             email_event.save(update_fields=["status", "sent_at", "updated_at"])
@@ -104,6 +113,12 @@ def send_abandoned_cart_email(cart: Cart) -> bool:
             recipient_list=[cart.user.email],
             fail_silently=False,
         )
-    except (SMTPException, BadHeaderError, OSError):
+    except (SMTPException, BadHeaderError, OSError) as exc:
+        logger.error(
+            "Failed to send abandoned cart email cart_id=%s user_id=%s: %s",
+            cart.id,
+            cart.user_id,
+            exc,
+        )
         return False
     return True

@@ -216,6 +216,11 @@ OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
 
 LOG_LEVEL = config("LOG_LEVEL", default="INFO")
+# Set LOG_FORMAT=json in production to emit machine-parseable JSON log lines
+# (e.g. for ingestion by CloudWatch, Datadog, Loki).
+# Any other value (including the default "text") uses a human-readable format.
+LOG_FORMAT = config("LOG_FORMAT", default="text")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -230,11 +235,18 @@ LOGGING = {
             # logging happens outside a request context (e.g. management commands).
             "format": "%(asctime)s %(levelname)s [%(request_id)s] %(name)s %(message)s",
         },
+        "json": {
+            # Structured JSON formatter – enabled when LOG_FORMAT=json.
+            # Each log line is a single JSON object, making it trivial to
+            # parse, filter, and alert on in log aggregation platforms.
+            "()": "core.log_filters.JsonFormatter",
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            # Use JSON formatter when LOG_FORMAT=json, otherwise human-readable text.
+            "formatter": "json" if LOG_FORMAT == "json" else "verbose",
             "filters": ["request_id"],
         }
     },

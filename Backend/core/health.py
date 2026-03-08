@@ -1,3 +1,4 @@
+import logging
 import time
 
 from django.conf import settings
@@ -6,6 +7,8 @@ from django.db import connection, OperationalError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+logger = logging.getLogger(__name__)
 
 
 class HealthCheckView(APIView):
@@ -43,6 +46,7 @@ class HealthCheckView(APIView):
         except OperationalError as exc:
             checks["database"] = f"error: {exc}"
             http_status = 503
+            logger.error("Health check: database probe failed: %s", exc)
 
         # --- Cache (Redis when configured, skipped otherwise) ---
         cache_redis_url = getattr(settings, "CACHE_REDIS_URL", "")
@@ -55,6 +59,7 @@ class HealthCheckView(APIView):
             except Exception as exc:  # noqa: BLE001
                 checks["cache"] = f"error: {exc}"
                 http_status = 503
+                logger.error("Health check: cache probe failed: %s", exc)
         else:
             checks["cache"] = "skipped"
 

@@ -184,4 +184,5 @@ def create_razorpay_order(amount: int, currency: str, receipt: str) -> dict:
         with urlopen(req, timeout=10) as response:
             return json.loads(response.read().decode())
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.error("Razorpay create-order API call failed receipt=%s: %s", receipt, exc)
         raise RazorpayIntegrationError("Failed to create Razorpay order") from exc
