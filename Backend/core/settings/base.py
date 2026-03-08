@@ -119,6 +119,15 @@ else:
 CACHE_TTL_PRODUCT_LIST = config("CACHE_TTL_PRODUCT_LIST", default=300, cast=int)   # 5 min
 CACHE_TTL_ANALYTICS = config("CACHE_TTL_ANALYTICS", default=600, cast=int)         # 10 min
 
+REDIS_URL = config("REDIS_URL", default="")
+if not REDIS_URL:
+    REDIS_URL = CACHE_REDIS_URL
+
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+
 if config("DB_NAME", default=""):
     DATABASES = {
         "default": {

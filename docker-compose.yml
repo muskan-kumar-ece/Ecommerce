@@ -55,6 +55,24 @@ services:
       sh -c "python manage.py migrate --settings=core.settings.prod &&
              daphne -b 0.0.0.0 -p 8000 core.asgi:application"
 
+  celery_worker:
+    build:
+      context: ./Backend
+    restart: unless-stopped
+    env_file: ./Backend/.env
+    environment:
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/2
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/1
+      DJANGO_ENV: prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A core worker -l info
+
   frontend:
     build:
       context: ./Frontend
