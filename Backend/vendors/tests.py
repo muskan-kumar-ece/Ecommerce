@@ -66,6 +66,10 @@ class VendorDashboardAPITests(TestCase):
                 product_id=upload_response.data["id"],
             ).exists()
         )
+        products_response = self.client.get("/api/v1/vendors/dashboard/products/")
+        self.assertEqual(products_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(products_response.data["count"], 1)
+        self.assertEqual(products_response.data["results"][0]["name"], "Acme Speaker")
 
     def test_vendor_can_view_orders_and_earnings(self):
         vendor = Vendor.objects.create(user=self.vendor_user, business_name="Acme Electronics", commission_rate=Decimal("10.00"))
@@ -103,8 +107,8 @@ class VendorDashboardAPITests(TestCase):
         self.client.force_authenticate(user=self.vendor_user)
         orders_response = self.client.get("/api/v1/vendors/dashboard/orders/")
         self.assertEqual(orders_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(orders_response.data), 1)
-        self.assertEqual(orders_response.data[0]["order_id"], order.id)
+        self.assertEqual(orders_response.data["count"], 1)
+        self.assertEqual(orders_response.data["results"][0]["order_id"], order.id)
         self.assertTrue(VendorOrder.objects.filter(vendor=vendor, order=order).exists())
 
         earnings_response = self.client.get("/api/v1/vendors/dashboard/earnings/")

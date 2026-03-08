@@ -52,6 +52,9 @@ class Product(models.Model):
             models.Index(fields=["slug"]),
             models.Index(fields=["sku"]),
             models.Index(fields=["is_active"]),
+            models.Index(fields=["is_active", "created_at"]),
+            models.Index(fields=["category", "is_active"]),
+            models.Index(fields=["price"]),
         ]
         constraints = [
             models.CheckConstraint(

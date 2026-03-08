@@ -1,8 +1,9 @@
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import permissions, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -54,10 +55,14 @@ class VendorDashboardProductView(APIView):
         vendor = self._get_vendor(request)
         if not vendor:
             return Response({"detail": "Vendor profile not found."}, status=status.HTTP_404_NOT_FOUND)
-        product_ids = VendorProduct.objects.filter(vendor=vendor).values_list("product_id", flat=True)
-        products = Product.objects.filter(id__in=product_ids).select_related("category").order_by("-created_at")
-        serializer = VendorDashboardProductSerializer(products, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        products = Product.objects.filter(vendor_listing__vendor=vendor).select_related("category").order_by("-created_at")
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        paginator.page_size_query_param = "page_size"
+        paginator.max_page_size = 100
+        page = paginator.paginate_queryset(products, request, view=self)
+        serializer = VendorDashboardProductSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
         vendor = self._get_vendor(request)
@@ -78,8 +83,13 @@ class VendorDashboardOrdersView(APIView):
         if not vendor:
             return Response({"detail": "Vendor profile not found."}, status=status.HTTP_404_NOT_FOUND)
         queryset = VendorOrder.objects.filter(vendor=vendor).select_related("order")
-        serializer = VendorOrderSerializer(queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        paginator.page_size_query_param = "page_size"
+        paginator.max_page_size = 100
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = VendorOrderSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class VendorDashboardEarningsView(APIView):
@@ -91,10 +101,10 @@ class VendorDashboardEarningsView(APIView):
             return Response({"detail": "Vendor profile not found."}, status=status.HTTP_404_NOT_FOUND)
         paid_orders = VendorOrder.objects.filter(vendor=vendor, order__payment_status=Order.PaymentStatus.PAID)
         summary = paid_orders.aggregate(
+            total_orders=Count("id"),
             gross_sales=Coalesce(Sum("total_amount"), Decimal("0.00")),
             total_commission=Coalesce(Sum("commission_amount"), Decimal("0.00")),
             total_earnings=Coalesce(Sum("earnings_amount"), Decimal("0.00")),
         )
-        summary["total_orders"] = paid_orders.count()
         serializer = VendorEarningsSerializer(summary)
         return Response(serializer.data, status=status.HTTP_200_OK)

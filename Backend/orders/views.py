@@ -7,6 +7,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import decorators
 from rest_framework import permissions, viewsets
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -24,6 +25,12 @@ from .serializers import (
     OrderSerializer,
     ShippingAddressSerializer,
 )
+
+
+class OrderPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class CartViewSet(viewsets.ModelViewSet):
@@ -48,6 +55,7 @@ class CartItemViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = OrderPagination
 
     def get_throttles(self):
         if self.action in {"create", "create_order"}:

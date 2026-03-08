@@ -333,8 +333,8 @@ class OrderCreateWithItemsAPITests(TestCase):
         response = self.client.get("/api/v1/orders/my-orders/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
-        order_ids = [order["id"] for order in response.data]
+        self.assertEqual(response.data["count"], 2)
+        order_ids = [order["id"] for order in response.data["results"]]
         self.assertIn(order1.id, order_ids)
         self.assertIn(order2.id, order_ids)
 
@@ -687,11 +687,11 @@ class AdminOrderManagementAPITests(TestCase):
         by_search = self.client.get("/admin/orders/", {"search": "customer@example.com"})
 
         self.assertEqual(by_status.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(by_status.data), 1)
-        self.assertEqual(by_status.data[0]["status"], Order.Status.CANCELLED)
+        self.assertEqual(by_status.data["count"], 1)
+        self.assertEqual(by_status.data["results"][0]["status"], Order.Status.CANCELLED)
         self.assertEqual(by_search.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(by_search.data), 1)
-        self.assertEqual(by_search.data[0]["id"], self.order.id)
+        self.assertEqual(by_search.data["count"], 1)
+        self.assertEqual(by_search.data["results"][0]["id"], self.order.id)
 
     def test_admin_can_view_order_detail(self):
         self.client.force_authenticate(user=self.admin_user)

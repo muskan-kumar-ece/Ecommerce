@@ -7,6 +7,7 @@ from django.db.models import Count, DecimalField, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,6 +27,12 @@ from .serializers import (
 )
 
 TRACKING_ID_PREFIX = "TRK"
+
+
+class AdminOrderPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
 
 
 class AnalyticsSummaryView(APIView):
@@ -99,11 +106,15 @@ class AnalyticsSummaryView(APIView):
         else:
             refund_rate_percent = 0.0
 
+        referral_metrics = Referral.objects.aggregate(
+            total_referrals=Count("id"),
+            successful_referrals=Count("id", filter=Q(reward_issued=True)),
+        )
+
         serializer = AnalyticsSummarySerializer(
             {
                 **metrics,
-                "total_referrals": Referral.objects.count(),
-                "successful_referrals": Referral.objects.filter(reward_issued=True).count(),
+                **referral_metrics,
                 "total_revenue": metrics["net_revenue"],
                 "refund_rate_percent": round(refund_rate_percent, 2),
             }
@@ -137,8 +148,10 @@ class AdminOrderListView(APIView):
                 search_query = search_query | Q(id=int(normalized_search))
             queryset = queryset.filter(search_query)
 
-        serializer = AdminOrderListSerializer(queryset, many=True)
-        return Response(serializer.data)
+        paginator = AdminOrderPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = AdminOrderListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class AdminOrderDetailView(APIView):

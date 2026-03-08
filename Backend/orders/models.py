@@ -108,6 +108,9 @@ class Order(models.Model):
             models.Index(fields=["user"]),
             models.Index(fields=["status"]),
             models.Index(fields=["payment_status"]),
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["payment_status", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
         ]
         constraints = [
             models.UniqueConstraint(
