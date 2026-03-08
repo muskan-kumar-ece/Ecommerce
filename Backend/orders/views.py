@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import F, Sum
@@ -251,6 +252,14 @@ class AdminAnalyticsView(APIView):
     throttle_classes = [AdminRateThrottle]
 
     def get(self, request):
+        if request.method == "GET":
+            try:
+                cached = cache.get("admin_analytics_summary")
+                if cached is not None:
+                    return Response(cached)
+            except Exception:
+                pass
+
         total_orders = Order.objects.count()
         total_revenue = (
             Order.objects.filter(payment_status=Order.PaymentStatus.PAID).aggregate(
@@ -275,19 +284,23 @@ class AdminAnalyticsView(APIView):
             for order in Order.objects.select_related("user").order_by("-created_at")[:10]
         ]
 
-        return Response(
-            {
-                "total_orders": total_orders,
-                "total_revenue": f"{total_revenue:.2f}",
-                "total_users": total_users,
-                "top_products": [
-                    {
-                        "product_id": row["product_id"],
-                        "name": row["product__name"],
-                        "total_sold": row["total_sold"],
-                    }
-                    for row in top_products
-                ],
-                "recent_orders": recent_orders,
-            }
-        )
+        response_data = {
+            "total_orders": total_orders,
+            "total_revenue": f"{total_revenue:.2f}",
+            "total_users": total_users,
+            "top_products": [
+                {
+                    "product_id": row["product_id"],
+                    "name": row["product__name"],
+                    "total_sold": row["total_sold"],
+                }
+                for row in top_products
+            ],
+            "recent_orders": recent_orders,
+        }
+        if request.method == "GET":
+            try:
+                cache.set("admin_analytics_summary", response_data, timeout=120)
+            except Exception:
+                pass
+        return Response(response_data)
