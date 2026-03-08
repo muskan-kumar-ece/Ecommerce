@@ -37,7 +37,11 @@ class WishlistView(APIView):
 
 class WishlistDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    throttle_classes = [WishlistMutationRateThrottle]
+
+    def get_throttles(self):
+        if self.request.method == "DELETE":
+            return [WishlistMutationRateThrottle()]
+        return super().get_throttles()
 
     def delete(self, request, product_id):
         deleted_count, _ = Wishlist.objects.filter(user=request.user, product_id=product_id).delete()
