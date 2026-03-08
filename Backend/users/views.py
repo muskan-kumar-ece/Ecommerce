@@ -56,3 +56,36 @@ class ReferralSummaryView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data)
+
+
+class CurrentUserView(APIView):
+    """
+    Return basic profile information for the authenticated user.
+
+    Used by the frontend middleware to determine admin access without
+    attempting a side-effecting request to a write endpoint.
+
+    Response schema
+    ---------------
+    {
+        "id": "<uuid>",
+        "email": "user@example.com",
+        "name": "Jane Doe",
+        "is_staff": false,
+        "role": "student"
+    }
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response(
+            {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "is_staff": user.is_staff,
+                "role": user.role,
+            }
+        )

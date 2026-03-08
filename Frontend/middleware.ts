@@ -21,20 +21,27 @@ export async function middleware(request: NextRequest) {
 
   if (requiresAdminAccess) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/products/`, {
-        method: "POST",
+      // Use the dedicated read-only /users/me/ endpoint to check staff status.
+      // This avoids the previous approach of making a write (POST) request to
+      // the products endpoint, which was semantically incorrect and fragile.
+      const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+        method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "text/plain",
         },
-        body: "permission-check",
       });
 
       if (response.status === 401) {
         return redirectToLogin(request);
       }
 
-      if (response.status === 403) {
+      if (!response.ok) {
+        // Unexpected error – deny access rather than silently allow
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+
+      const user = await response.json() as { is_staff?: boolean };
+      if (!user.is_staff) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     } catch (error) {

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -51,6 +52,12 @@ class Product(models.Model):
             models.Index(fields=["slug"]),
             models.Index(fields=["sku"]),
             models.Index(fields=["is_active"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(stock_quantity__gte=0),
+                name="product_stock_quantity_non_negative",
+            ),
         ]
 
     def save(self, *args, **kwargs):

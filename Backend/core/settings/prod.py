@@ -6,6 +6,10 @@ DEBUG = False
 SECRET_KEY = config("SECRET_KEY")
 
 SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=True, cast=bool)
+# Required when Django runs behind a load balancer or reverse proxy.
+# Without this, SECURE_SSL_REDIRECT causes an infinite redirect loop because
+# Django cannot see the original HTTPS scheme — it only sees HTTP from the proxy.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_BROWSER_XSS_FILTER = True

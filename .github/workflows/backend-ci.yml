@@ -43,6 +43,10 @@ jobs:
         working-directory: Backend
         run: python manage.py check
 
+      - name: Check for missing migrations
+        working-directory: Backend
+        run: python manage.py migrate --check
+
       - name: Run migrations (SQLite)
         working-directory: Backend
         run: python manage.py migrate --run-syncdb

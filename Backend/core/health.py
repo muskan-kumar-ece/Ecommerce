@@ -1,5 +1,7 @@
 import time
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db import connection, OperationalError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -10,26 +12,19 @@ class HealthCheckView(APIView):
     """
     Lightweight health endpoint used by load balancers and uptime monitors.
 
-    Returns HTTP 200 when the application and its critical dependencies (database)
-    are reachable, and HTTP 503 when any dependency is down.
+    Probes every configured dependency and returns HTTP 200 when all are
+    healthy, HTTP 503 when any dependency is degraded.
 
-    Example response (healthy):
-        {
-            "status": "ok",
-            "checks": {
-                "database": "ok"
-            },
-            "response_time_ms": 4.2
-        }
-
-    Example response (unhealthy):
-        {
-            "status": "error",
-            "checks": {
-                "database": "error: could not connect"
-            },
-            "response_time_ms": 15.1
-        }
+    Response schema
+    ---------------
+    {
+        "status": "ok" | "error",
+        "checks": {
+            "database": "ok" | "error: <reason>",
+            "cache":    "ok" | "error: <reason>" | "skipped"
+        },
+        "response_time_ms": <float>
+    }
     """
 
     authentication_classes = []
@@ -40,7 +35,7 @@ class HealthCheckView(APIView):
         checks = {}
         http_status = 200
 
-        # Database check
+        # --- Database ---
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
@@ -49,8 +44,22 @@ class HealthCheckView(APIView):
             checks["database"] = f"error: {exc}"
             http_status = 503
 
+        # --- Cache (Redis when configured, skipped otherwise) ---
+        cache_redis_url = getattr(settings, "CACHE_REDIS_URL", "")
+        if cache_redis_url:
+            try:
+                cache.set("health_probe", "1", timeout=5)
+                if cache.get("health_probe") != "1":
+                    raise RuntimeError("cache round-trip returned unexpected value")
+                checks["cache"] = "ok"
+            except Exception as exc:  # noqa: BLE001
+                checks["cache"] = f"error: {exc}"
+                http_status = 503
+        else:
+            checks["cache"] = "skipped"
+
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
-        all_ok = all(v == "ok" for v in checks.values())
+        all_ok = all(v in ("ok", "skipped") for v in checks.values())
 
         return Response(
             {
